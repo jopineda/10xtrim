@@ -11,6 +11,9 @@
 #include <htslib/hts.h>
 #include "10xtrim.hpp"
 #include "../overlapper.hpp"
+#include "../common.hpp"
+#include "../cigar.hpp"
+
 
 #define VERSION "beta"
 #define PROGRAM "10xtrim"
@@ -120,28 +123,6 @@ void parse_args ( int argc, char *argv[])
 
 }
 
-char get_nuc(int x) {
-    switch (x) {
-        case 1: return 'A';
-        case 2: return 'C';
-        case 4: return 'G';
-        case 8: return 'T';
-        case 15: return 'N';
-        default: return '.';
-    }
-}
-
-char get_complement_base(char x) {
-    switch (x) {
-        case 'A': return 'T';
-        case 'C': return 'G';
-        case 'G': return 'C';
-        case 'T': return 'A';
-        case 'N': return 'N';
-        default: return '.';
-    }
-}
-
 const char* cigar_op_to_string(int type) {
     switch(type) {
         case BAM_CMATCH:  return "M";
@@ -204,12 +185,15 @@ void trim() {
             string seq = "";
             string seq_rc = "";
             char nuc;
+            //cout << bam_get_seq(read) << "\n";
+            //exit(0);
             size_t n = (size_t) read->core.l_qseq;
             for (size_t i = 0; i < n; ++i) {
                 nuc =  get_nuc(bam_seqi(bam_get_seq(read), i));
                 seq += nuc;
                 seq_rc += get_complement_base(nuc); 
             }
+
             // convert complement to reverse complement
             reverse(seq_rc.begin(), seq_rc.end());
           
@@ -225,6 +209,7 @@ void trim() {
             if ( c->n_cigar && (overlap.score > opt::min_score) && (overlap.total_columns > 10) ) { 
                 // old cigar information
                 uint32_t *cigar = bam_get_cigar(read);
+                vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
 
                 // get old cigar for debugging
                 string old_cigar_str = "";
