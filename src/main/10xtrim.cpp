@@ -63,7 +63,7 @@ void parse_args ( int argc, char *argv[])
     "        --min-score            Minimum overlap score\n"
     "    -p, --padding              Number of bases added to overlap start when trimming\n";
 
-    int bflag=0; int pflag=0; int mflag=0;
+    int pflag=0; int mflag=0;
     int c;
     while ( (c = getopt_long(argc, argv, short_opts, long_opts, NULL)) != -1 ) {
     std::istringstream arg(optarg != NULL ? optarg : "");
@@ -75,13 +75,12 @@ void parse_args ( int argc, char *argv[])
             std::cout << VERSION_MESSAGE << endl;
             exit(0);
         case 'b':
-            if ( bflag == 1 ) {
+            if ( opt::bamfile != "" ) {
                 fprintf(stderr, VERSION_MESSAGE);
                 fprintf(stderr, "10xtrim: multiple instances of option -b,--bam. \n\n");
                 fprintf(stderr, USAGE_MESSAGE, argv[0]);
                 exit(EXIT_FAILURE);
             }
-            bflag = 1;
             arg >> opt::bamfile;
             //std::cout << "BAM file = " + opt::bamfile << endl;
             break;
@@ -108,7 +107,7 @@ void parse_args ( int argc, char *argv[])
    }
 
     // check mandatory variables and assign defaults
-    if ( bflag == 0 ) {
+    if ( opt::bamfile == "" ) {
         fprintf(stderr, "10xtrim: missing -b,--bam option\n\n");
         fprintf(stderr, USAGE_MESSAGE, argv[0]);
         exit(EXIT_FAILURE);
@@ -155,6 +154,10 @@ void trim() {
     // open input bamfile
     const char* in_bamfilename = opt::bamfile.c_str();
     htsFile *infile = hts_open(in_bamfilename,"rb"); //open bam file
+    if(infile==NULL) {
+        fprintf(stderr, "10xtrim: could not open input bamfile\n\n");
+        exit(EXIT_FAILURE);       
+    }
     bam1_t *read = bam_init1();
     bam_hdr_t *header = sam_hdr_read(infile);
     // initialize output bamfile
