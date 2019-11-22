@@ -122,34 +122,6 @@ void parse_args ( int argc, char *argv[])
 
 }
 
-const char* cigar_op_to_string(int type) {
-    switch(type) {
-        case BAM_CMATCH:  return "M";
-        case BAM_CINS: return "I";
-        case BAM_CDEL: return "D";
-        case BAM_CREF_SKIP: return "N";
-        case BAM_CSOFT_CLIP: return "S";
-        case BAM_CHARD_CLIP: return "H";
-        case BAM_CPAD: return "P";
-        case BAM_CEQUAL: return "=";
-        case BAM_CDIFF: return "X";
-    }
-}
-
-uint32_t string_op_to_cigar(int len, string op) {
-    uint32_t incoming;
-    incoming = len << BAM_CIGAR_SHIFT;
-    if (op == "M") incoming |= BAM_CMATCH;
-    else if (op == "I") incoming |= BAM_CINS;
-    else if (op == "=") incoming |= BAM_CEQUAL;
-    else if (op == "X") incoming |= BAM_CDIFF;
-    else if (op == "D") incoming |= BAM_CDEL;
-    else if (op == "H") incoming |= BAM_CHARD_CLIP;
-    else if (op == "N") incoming |= BAM_CREF_SKIP;
-    else if (op == "S") incoming |= BAM_CSOFT_CLIP;
-    return incoming;
-}
-
 void trim() {
     // open input bamfile
     const char* in_bamfilename = opt::bamfile.c_str();
@@ -165,6 +137,10 @@ void trim() {
     const char* out_filename = temp.c_str();
     htsFile *outfile= hts_open(out_filename, "wb");
     int ret_val = sam_hdr_write(outfile, header); // copy header
+    if ( ret_val < 0 ) {
+        fprintf(stderr, "10xtrim: error copying header from input bamfile to new bamfile\n\n");
+        exit(EXIT_FAILURE);
+    }
 
     cout << "read_name\tread_length\ttotal_bases_removed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
     while(sam_read1(infile, header, read) >= 0) {
@@ -199,85 +175,81 @@ void trim() {
             // - overlap score is greater than thresh
             // - overlap length is greater than 10
             // start modifying cigar
-            if ( c->n_cigar && ((int)overlap.score > opt::min_score) && (overlap.total_columns > 10) ) {
-                //if ( rname == "A00469:17:HFK7YDSXX:1:1422:11071:34162" ) { cout <<seq <<"\n"; cout << seq_rc <<"\n"; cout << overlap.score << "\n"; overlap.printAlignment(seq, seq_rc); exit(0); }
+            bool hairpin_detected = ( c->n_cigar && ((int)overlap.score > opt::min_score) && (overlap.total_columns > 10) );
+            // old cigar information
+            uint32_t *cigar = bam_get_cigar(read);
+            vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
+            string old_cigar_str = "";
+            uint32_t old_cigar_idx = 0; // position in cigar
+            while ( old_cigar_idx < c->n_cigar ) {
+                //int type = bam_cigar_op(cigar[old_cigar_idx]);
+                int len = bam_cigar_oplen(cigar[old_cigar_idx]);
+                char op = BAM_CIGAR_STR[bam_cigar_op(cigar[old_cigar_idx])];
+                old_cigar_str += to_string(len) + op;
+                old_cigar_idx++;
+            }
 
-                // old cigar information
-                uint32_t *cigar = bam_get_cigar(read);
-                vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
-                string old_cigar_str = "";
-                uint32_t old_cigar_idx = 0; // position in cigar
-                while ( old_cigar_idx < c->n_cigar ) {
-                    int type = bam_cigar_op(cigar[old_cigar_idx]);
-                    int len = bam_cigar_oplen(cigar[old_cigar_idx]);
-                    string op = cigar_op_to_string(type);
-                    old_cigar_str += to_string(len) + op;
-                    old_cigar_idx++;
-                }
-
-                bool is_unmapped;
+            bool is_unmapped;
+            if ( hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5) ) {
                 // CASE 1 : HAIRPIN AT THE BEGINNING
                 // original:       ====-----------
                 // rev comp: ------====
-                if ( overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5) ) {
-                    int clip_pos = overlap.match[0].end + opt::padding;
-                    if ( clip_pos >= qlen ) clip_pos = overlap.match[0].end;
-                    int total_bases_to_trim = clip_pos + 1;
-                    int cigar_pos = 0;
-                    int read_pos = 0;
-                    int ref_bases_consumed = 0;
-                    while ( read_pos < clip_pos ) {
-                        char op = expanded_cigar[cigar_pos];
-                        if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
-                            expanded_cigar[cigar_pos] = 'S';
-                            read_pos++;
-                        }
-                        if ( op == 'M' || op == 'D' || op == 'N' || op == '=' || op == 'X' ) ref_bases_consumed++;
-                        cigar_pos++;
+                int clip_pos = overlap.match[0].end + opt::padding;
+                if ( clip_pos >= qlen ) clip_pos = overlap.match[0].end;
+                int total_bases_to_trim = clip_pos + 1;
+                int cigar_pos = 0;
+                int read_pos = 0;
+                int ref_bases_consumed = 0;
+                while ( read_pos < clip_pos ) {
+                    char op = expanded_cigar[cigar_pos];
+                    if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
+                        expanded_cigar[cigar_pos] = 'S';
+                        read_pos++;
                     }
-                    vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
-                    // check if unmapped
-                    if ( new_cigar.size() == 1 ) {
-                        is_unmapped = true;
-                    }
-                    //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\t" << ref_bases_consumed << "\n";   
-                    cout << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
-                    write_new_alignment(header, read, outfile, new_cigar, is_unmapped, ref_bases_consumed);
+                    if ( op == 'M' || op == 'D' || op == 'N' || op == '=' || op == 'X' ) ref_bases_consumed++;
+                    cigar_pos++;
+                }
+                vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
+                // check if unmapped
+                if ( new_cigar.size() == 1 ) {
+                    is_unmapped = true;
+                }
+                //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\t" << ref_bases_consumed << "\n";   
+                cout << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
+                write_new_alignment(header, read, outfile, new_cigar, is_unmapped, ref_bases_consumed);
                 // CASE 2 : HAIRPIN AT THE END
                 // original: ------====
                 // rev comp:       ====-----------
-                } else if ( overlap.match[0].end < 5 && (overlap.match[1].end > qlen - 5) ) {
-                    int clip_pos = overlap.match[0].start - opt::padding;
-                    if ( clip_pos >= 0 ) { 
-                        clip_pos = 0;
-                        is_unmapped = true;
-                    }
-                    int total_bases_to_trim = qlen - clip_pos + 1;
-                    int cigar_pos = expanded_cigar.size();
-                    int read_pos = qlen - 1;
-                    while ( read_pos >= clip_pos ) {
-                        char op = expanded_cigar[cigar_pos];
-                        if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
-                            expanded_cigar[cigar_pos] = 'S';
-                            read_pos--;
-                        }
-                        cigar_pos--;
-                    }
-                    //print_expanded_cigar(expanded_cigar);
-                    vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
-                    // check if unmapped
-                    if ( new_cigar.size() == 1 ) {
-                        is_unmapped = true;
-                    }
-                    cout << rname << "\t" << to_string(qlen) << "\t" <<  total_bases_to_trim << "\t"<< old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
-                    write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
-                    //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\n";
+            } else if ( hairpin_detected && overlap.match[0].end < 5 && (overlap.match[1].end > qlen - 5) ) {
+                int clip_pos = overlap.match[0].start - opt::padding;
+                if ( clip_pos >= 0 ) { 
+                    clip_pos = 0;
+                    is_unmapped = true;
                 }
-                
+                int total_bases_to_trim = qlen - clip_pos + 1;
+                int cigar_pos = expanded_cigar.size();
+                int read_pos = qlen - 1;
+                while ( read_pos >= clip_pos ) {
+                    char op = expanded_cigar[cigar_pos];
+                    if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
+                        expanded_cigar[cigar_pos] = 'S';
+                        read_pos--;
+                    }
+                    cigar_pos--;
+                }
+                //print_expanded_cigar(expanded_cigar);
+                vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
+                // check if unmapped
+                if ( new_cigar.size() == 1 ) {
+                    is_unmapped = true;
+                }
+                cout << rname << "\t" << to_string(qlen) << "\t" <<  total_bases_to_trim << "\t"<< old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
+                write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
+                    //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\n";
             } else {
                 int ret = sam_write1(outfile, header, read);
                 if(ret < 0) {
-                    fprintf(stderr, "error writing sam record\n");
+                    fprintf(stderr, "10xtrim: error writing sam record\n");
                     exit(EXIT_FAILURE);
                 }
             }
@@ -376,7 +348,7 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
     int ret = sam_write1(outfile, header, new_record);
 
     if(ret < 0) {
-        fprintf(stderr, "error writing sam record\n");
+        fprintf(stderr, "10xtrim: error writing sam record\n");
         exit(EXIT_FAILURE);
     }
 
