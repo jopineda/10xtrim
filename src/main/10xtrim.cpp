@@ -11,6 +11,9 @@
 #include <htslib/hts.h>
 #include "10xtrim.hpp"
 #include "../overlapper.hpp"
+#include "../common.hpp"
+#include "../cigar.hpp"
+
 
 #define VERSION "beta"
 #define PROGRAM "10xtrim"
@@ -60,7 +63,7 @@ void parse_args ( int argc, char *argv[])
     "        --min-score            Minimum overlap score\n"
     "    -p, --padding              Number of bases added to overlap start when trimming\n";
 
-    int bflag=0; int pflag=0; int mflag=0;
+    int pflag=0; int mflag=0;
     int c;
     while ( (c = getopt_long(argc, argv, short_opts, long_opts, NULL)) != -1 ) {
     std::istringstream arg(optarg != NULL ? optarg : "");
@@ -72,13 +75,12 @@ void parse_args ( int argc, char *argv[])
             std::cout << VERSION_MESSAGE << endl;
             exit(0);
         case 'b':
-            if ( bflag == 1 ) {
+            if ( opt::bamfile != "" ) {
                 fprintf(stderr, VERSION_MESSAGE);
                 fprintf(stderr, "10xtrim: multiple instances of option -b,--bam. \n\n");
                 fprintf(stderr, USAGE_MESSAGE, argv[0]);
                 exit(EXIT_FAILURE);
             }
-            bflag = 1;
             arg >> opt::bamfile;
             //std::cout << "BAM file = " + opt::bamfile << endl;
             break;
@@ -105,7 +107,7 @@ void parse_args ( int argc, char *argv[])
    }
 
     // check mandatory variables and assign defaults
-    if ( bflag == 0 ) {
+    if ( opt::bamfile == "" ) {
         fprintf(stderr, "10xtrim: missing -b,--bam option\n\n");
         fprintf(stderr, USAGE_MESSAGE, argv[0]);
         exit(EXIT_FAILURE);
@@ -120,70 +122,14 @@ void parse_args ( int argc, char *argv[])
 
 }
 
-char get_nuc(int x) {
-    switch (x) {
-        case 1: return 'A';
-        case 2: return 'C';
-        case 4: return 'G';
-        case 8: return 'T';
-        case 15: return 'N';
-        default: return '.';
-    }
-}
-
-char get_complement_base(char x) {
-    switch (x) {
-        case 'A': return 'T';
-        case 'C': return 'G';
-        case 'G': return 'C';
-        case 'T': return 'A';
-        case 'N': return 'N';
-        default: return '.';
-    }
-}
-
-const char* cigar_op_to_string(int type) {
-    switch(type) {
-        case BAM_CMATCH:  return "M";
-        case BAM_CINS: return "I";
-        case BAM_CDEL: return "D";
-        case BAM_CREF_SKIP: return "N";
-        case BAM_CSOFT_CLIP: return "S";
-        case BAM_CHARD_CLIP: return "H";
-        case BAM_CPAD: return "P";
-        case BAM_CEQUAL: return "=";
-        case BAM_CDIFF: return "X";
-    }
-}
-
-uint32_t string_op_to_cigar(int len, string op) {
-    uint32_t incoming;
-    incoming = len << BAM_CIGAR_SHIFT;
-    if (op == "M") incoming |= BAM_CMATCH;
-    else if (op == "I") incoming |= BAM_CINS;
-    else if (op == "=") incoming |= BAM_CEQUAL;
-    else if (op == "X") incoming |= BAM_CDIFF;
-    else if (op == "D") incoming |= BAM_CDEL;
-    else if (op == "H") incoming |= BAM_CHARD_CLIP;
-    else if (op == "N") incoming |= BAM_CREF_SKIP;
-    else if (op == "S") incoming |= BAM_CSOFT_CLIP;
-    return incoming;
-}
-
-string cigar_ops_to_string(const vector<uint32_t>& ops)
-{
-    stringstream ss;
-    for(size_t i = 0; i < ops.size(); ++i) {
-        ss << bam_cigar_oplen(ops[i]);
-        ss << BAM_CIGAR_STR[bam_cigar_op(ops[i])];
-    }
-    return ss.str();
-}
-
 void trim() {
     // open input bamfile
     const char* in_bamfilename = opt::bamfile.c_str();
     htsFile *infile = hts_open(in_bamfilename,"rb"); //open bam file
+    if(infile==NULL) {
+        fprintf(stderr, "10xtrim: could not open input bamfile\n\n");
+        exit(EXIT_FAILURE);       
+    }
     bam1_t *read = bam_init1();
     bam_hdr_t *header = sam_hdr_read(infile);
     // initialize output bamfile
@@ -191,6 +137,10 @@ void trim() {
     const char* out_filename = temp.c_str();
     htsFile *outfile= hts_open(out_filename, "wb");
     int ret_val = sam_hdr_write(outfile, header); // copy header
+    if ( ret_val < 0 ) {
+        fprintf(stderr, "10xtrim: error copying header from input bamfile to new bamfile\n\n");
+        exit(EXIT_FAILURE);
+    }
 
     cout << "read_name\tread_length\ttotal_bases_removed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
     while(sam_read1(infile, header, read) >= 0) {
@@ -204,256 +154,102 @@ void trim() {
             string seq = "";
             string seq_rc = "";
             char nuc;
+            //cout << bam_get_seq(read) << "\n";
+            //exit(0);
             size_t n = (size_t) read->core.l_qseq;
             for (size_t i = 0; i < n; ++i) {
                 nuc =  get_nuc(bam_seqi(bam_get_seq(read), i));
                 seq += nuc;
                 seq_rc += get_complement_base(nuc); 
             }
+
             // convert complement to reverse complement
             reverse(seq_rc.begin(), seq_rc.end());
           
             // calculate the overlaps between rev comp and original seq
             SequenceOverlap overlap = Overlapper::computeOverlap(seq, seq_rc);
-            //overlap.printAlignment(seq, seq_rc);
+            //if ( rname == "A00469:17:HFK7YDSXX:1:1422:11071:34162" ) { cout << overlap.score << "\n"; overlap.printAlignment(seq, seq_rc); exit(0); }
             //cout << rname << "\t" << seq <<"\t" << overlap.score << "\t" <<  overlap.match[0].start << "\t" << overlap.match[1].start <<"\n";
 
             // hairpin detected if
             // - overlap score is greater than thresh
             // - overlap length is greater than 10
             // start modifying cigar
-            if ( c->n_cigar && (overlap.score > opt::min_score) && (overlap.total_columns > 10) ) { 
-                // old cigar information
-                uint32_t *cigar = bam_get_cigar(read);
+            bool hairpin_detected = ( c->n_cigar && ((int)overlap.score > opt::min_score) && (overlap.total_columns > 10) );
+            // old cigar information
+            uint32_t *cigar = bam_get_cigar(read);
+            vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
+            string old_cigar_str = "";
+            uint32_t old_cigar_idx = 0; // position in cigar
+            while ( old_cigar_idx < c->n_cigar ) {
+                //int type = bam_cigar_op(cigar[old_cigar_idx]);
+                int len = bam_cigar_oplen(cigar[old_cigar_idx]);
+                char op = BAM_CIGAR_STR[bam_cigar_op(cigar[old_cigar_idx])];
+                old_cigar_str += to_string(len) + op;
+                old_cigar_idx++;
+            }
 
-                // get old cigar for debugging
-                string old_cigar_str = "";
-                uint32_t old_cigar_idx = 0; // position in cigar
-                while ( old_cigar_idx < c->n_cigar ) {
-                    int type = bam_cigar_op(cigar[old_cigar_idx]);
-                    int len = bam_cigar_oplen(cigar[old_cigar_idx]);
-                    string op = cigar_op_to_string(type);
-                    old_cigar_str += to_string(len) + op;
-                    old_cigar_idx++;
-                }
-
-                // initialize new cigar
-                string new_cigar_str = "";
-                int type = 0; int len = 0; string op = "";
-                vector<uint32_t> new_cigar;
-                uint32_t incoming;
-
-                // initialize variables necessary for trimming
-                int clip_pos = 0;               // position to clip read from
-                bool is_unmapped = false;       // marks if entire read gets softclipped
-                int total_bases_trimmed = 0;    // total bases trimmed
-                int num_bases_to_remove = 0;    // number of bases remaining to remove
-                int num_ref_based_ops_trimmed = 0; // may need to update left-most map pos
-                uint32_t cigar_idx = 0;         // cigar operation index
- 
+            bool is_unmapped;
+            if ( hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5) ) {
                 // CASE 1 : HAIRPIN AT THE BEGINNING
                 // original:       ====-----------
                 // rev comp: ------====
-                if ( overlap.match[0].start < 5 && overlap.match[1].end > qlen - 5) {
-                    // find where to clip and add padding if requested
-                    clip_pos = overlap.match[0].end + opt::padding;
-                    if ( clip_pos >= qlen ) clip_pos = overlap.match[0].end;
-                    assert(clip_pos < qlen);
-                    num_bases_to_remove = clip_pos + 1;
-                    total_bases_trimmed = num_bases_to_remove;
-
-                    // first cigar operation
-                    type = bam_cigar_op(cigar[0]);
-                    len = bam_cigar_oplen(cigar[0]);
-                    op = cigar_op_to_string(type); 
-
-                    // add softclip to the beginning
-                    int init = 0;
-                    int cigar_len = 0;
-                    // if already softclipped, and current softclip len does not include
-                    // the bases we want to trim, we need to add to softclip
-                    if ( op == "S" && len < clip_pos + 1 ) {
-                        num_bases_to_remove -= len;
-                        incoming = string_op_to_cigar(clip_pos + 1, "S");
-                        cigar_len += clip_pos + 1;
-                        init++;
-                    // if already softclipped, and current softclip len already includes
-                    // the bases we want to trim, we don't do anything
-                    } else if ( op == "S" && len >= clip_pos + 1) {
-                        num_bases_to_remove = 0;
-                        cigar_len += len;
-                        incoming = string_op_to_cigar(len, "S");
-                    // if we don't start with a softclip, then add softclip to beginning
-                    } else {
-                        cigar_len += clip_pos + 1;
-                        incoming = string_op_to_cigar(clip_pos + 1, "S"); 
+                int clip_pos = overlap.match[0].end + opt::padding;
+                if ( clip_pos >= qlen ) clip_pos = overlap.match[0].end;
+                int total_bases_to_trim = clip_pos + 1;
+                int cigar_pos = 0;
+                int read_pos = 0;
+                int ref_bases_consumed = 0;
+                while ( read_pos < clip_pos ) {
+                    char op = expanded_cigar[cigar_pos];
+                    if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
+                        expanded_cigar[cigar_pos] = 'S';
+                        read_pos++;
                     }
-                    new_cigar.push_back(incoming);
- 
-                    // remove bases from front until removed num_bases_to_remove
-                    while ( num_bases_to_remove > 0 && init < c->n_cigar) {
-                        // collect cigar operation info
-                        type = bam_cigar_op(cigar[init]);
-                        len = bam_cigar_oplen(cigar[init]);
-                        op = cigar_op_to_string(type);
-
-                        // if we still have to remove bases and the next operation is softclipped
-                        // the entire read is being softclipped, we need to mark as unmapped
-                        if (op == "S") {
-                            init = c->n_cigar; // init = next position in cigar to start adding 
-                            new_cigar.clear();
-                            incoming = string_op_to_cigar(qlen, "S");
-                            new_cigar.push_back(incoming); 
-                            is_unmapped = true;
-                        }
-                        // otherwise move on to next read-operation
-                        if (op == "M" || op == "I" || op == "=" || op == "X" ) {
-                            int new_len = len - num_bases_to_remove;
-                            // stop softclipping
-                            if ( len > num_bases_to_remove ) { // remove part of the cigar operation only
-                                incoming = string_op_to_cigar(new_len, op);
-                                new_cigar.push_back(incoming);
-                                cigar_len += new_len;
-                                if ( op == "M" || op == "=" || op == "X" ) {
-                                    num_ref_based_ops_trimmed += num_bases_to_remove;
-                                }
-                                break;
-                            } else if ( len == num_bases_to_remove ) {
-                                num_bases_to_remove -= len;
-                                break;
-                            } else { // remove cigar operation completely
-                                num_bases_to_remove -= len;
-                            }
-                        } else {
-                            // reference-based operation, just add to new cigar
-                            incoming = string_op_to_cigar(len, op);
-                            new_cigar.push_back(incoming);
-                            num_ref_based_ops_trimmed += len;
-                        }
-                        init++;
-                    }
-                    
-                    if (init <= c->n_cigar && init != 0) {
-                        type = bam_cigar_op(cigar[init]);
-                        len = bam_cigar_oplen(cigar[init]);
-                        op = cigar_op_to_string(type);
-
-                        // if we still have to remove bases and the next operation is softclipped
-                        // the entire read is being softclipped, we need to mark as unmapped
-                        if (op == "S") { 
-                            is_unmapped = true;
-                            init = c->n_cigar; 
-                        }
-                    }
-                    // add the remaining cigar string with modified beginning
-                    for (cigar_idx = init + 1; cigar_idx < c->n_cigar; cigar_idx++) {
-                        type = bam_cigar_op(cigar[cigar_idx]);
-                        len = bam_cigar_oplen(cigar[cigar_idx]);
-                        op = cigar_op_to_string(type);
-                        incoming = string_op_to_cigar(len, op);
-                        new_cigar.push_back(incoming);
-                        //cout << op << to_string(len)<< "\n";
-                        if (op == "M" || op == "I" || op == "=" || op == "X" || op =="S" ) {
-                            cigar_len += len;
-                        }
-                    }
-                    if ( is_unmapped ) {
-                        new_cigar_str = to_string(qlen) + "S";
-                        cigar_len = qlen;
-                        new_cigar.clear();
-                        incoming = string_op_to_cigar(qlen, "S");
-                        new_cigar.push_back(incoming);
-                    }
-                    cout << rname << "\t" << to_string(qlen) << "\t" << to_string(total_bases_trimmed) << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
-                    assert(cigar_len == qlen);
-                    write_new_alignment(header, read, outfile, new_cigar, is_unmapped, num_ref_based_ops_trimmed);
+                    if ( op == 'M' || op == 'D' || op == 'N' || op == '=' || op == 'X' ) ref_bases_consumed++;
+                    cigar_pos++;
+                }
+                vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
+                // check if unmapped
+                if ( new_cigar.size() == 1 ) {
+                    is_unmapped = true;
+                }
+                //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\t" << ref_bases_consumed << "\n";   
+                cout << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
+                write_new_alignment(header, read, outfile, new_cigar, is_unmapped, ref_bases_consumed);
                 // CASE 2 : HAIRPIN AT THE END
                 // original: ------====
                 // rev comp:       ====-----------
-                } else {
-                    // determine position to start trimming from
-                    clip_pos = overlap.match[0].start - opt::padding;
-                    if ( clip_pos < 0 ) {
-                        clip_pos = 0; // will clip everything
-                        is_unmapped = true;
-                    }
-                    assert( clip_pos >= 0 );
-                    total_bases_trimmed = qlen - clip_pos - 1;
-
-                    int pos = 0; int cigar_len = 0; int len = 0;
-                    cigar_idx = type = 0; op = "";
-                    // add everything up until clip position
-                    while ( cigar_idx < c->n_cigar ) {
-                        type = bam_cigar_op(cigar[cigar_idx]);
-                        len = bam_cigar_oplen(cigar[cigar_idx]);
-                        op = cigar_op_to_string(type);
-                        if (op == "M" || op == "I" || op == "=" || op == "X" || op == "S") {
-                            pos += len;
-                        }
-                        if ( pos > clip_pos + 1 ) { // reached position to stop clipping
-                            break; 
-                        } else if ((pos == clip_pos + 1) && (op == "M" || op == "I" || op == "=" || op == "X" || op == "S")){
-                            incoming = string_op_to_cigar(len, op);
-                            new_cigar.push_back(incoming);
-                            cigar_len += len;
-                            //cigar_idx++;
-                            break;
-                        }
-                        // keep adding to the cigar strings
-                        incoming = string_op_to_cigar(len, op);
-                        new_cigar.push_back(incoming);
-                        if (op == "M" || op == "I" || op == "=" || op == "X" || op == "S" ) {
-                            cigar_len += len;
-                        }
-                        cigar_idx++;
-                    }
-
-
-                    // Start trimming depending on case
-                    if ( op != "S" ) {
-                        // CASE 1: Last operation needs to be trimmed
-                        // Ex. CIGAR = 10S15M, clip pos = 15, NEW CIGAR = 10S5M10S
-                        if ( pos  > clip_pos + 1 ) {
-                            int remove_len = pos - clip_pos;
-                            int new_len = len - remove_len + 1;
-                            cigar_len += new_len;
-                            incoming = string_op_to_cigar(new_len, op);
-                            new_cigar.push_back(incoming);
-                        }
-
-                        // CASE 2: Last operation needs to be completely trimmed
-                        // Ex. CIGAR = 10S5I15M, clip pos = 15, NEW CIGAR = 10S5I15S 
-                        int softclip = qlen - clip_pos - 1;
-                        incoming = string_op_to_cigar(softclip, "S");
-                        new_cigar.push_back(incoming);
-                        cigar_len += softclip;
-                    } else {
-                        // CASE 3: Last operation is softclipped and includes trimmed bases
-                        // Ex. CIGAR = 10S15M10S, clip pos = 30, NEW CIGAR = 10S15M10S
-                        incoming = string_op_to_cigar(len, op);
-                        new_cigar.push_back(incoming);
-                        cigar_len += len;
-                        // CASE 4: Trimming from already softclipped position at the front
-                        // Ex. CIGAR = 85S15M, clip pos = 10, NEW CIGAR = 100S
-                        if ( cigar_idx == 0 ) {
-                            is_unmapped = true;
-                        } 
-                    }
-                    if ( is_unmapped ) {
-                        new_cigar.clear();
-                        incoming = string_op_to_cigar(qlen, "S");
-                        new_cigar.push_back(incoming);
-                        cigar_len = qlen;
-                    }
-                                
-                    cout << rname << "\t" << to_string(qlen) << "\t" << to_string(total_bases_trimmed) << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
-                    assert(cigar_len == qlen);
-                    write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
+            } else if ( hairpin_detected && overlap.match[0].end < 5 && (overlap.match[1].end > qlen - 5) ) {
+                int clip_pos = overlap.match[0].start - opt::padding;
+                if ( clip_pos >= 0 ) { 
+                    clip_pos = 0;
+                    is_unmapped = true;
                 }
+                int total_bases_to_trim = qlen - clip_pos + 1;
+                int cigar_pos = expanded_cigar.size();
+                int read_pos = qlen - 1;
+                while ( read_pos >= clip_pos ) {
+                    char op = expanded_cigar[cigar_pos];
+                    if ( op == 'M' || op == 'S' || op == 'I' || op == '=' || op == 'X' ) {
+                        expanded_cigar[cigar_pos] = 'S';
+                        read_pos--;
+                    }
+                    cigar_pos--;
+                }
+                //print_expanded_cigar(expanded_cigar);
+                vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
+                // check if unmapped
+                if ( new_cigar.size() == 1 ) {
+                    is_unmapped = true;
+                }
+                cout << rname << "\t" << to_string(qlen) << "\t" <<  total_bases_to_trim << "\t"<< old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
+                write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
+                    //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\n";
             } else {
                 int ret = sam_write1(outfile, header, read);
                 if(ret < 0) {
-                    fprintf(stderr, "error writing sam record\n");
+                    fprintf(stderr, "10xtrim: error writing sam record\n");
                     exit(EXIT_FAILURE);
                 }
             }
@@ -520,6 +316,21 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
     memcpy(bam_get_cigar(new_record), &new_cigar[0], new_record->core.n_cigar * 4);
     new_record->l_data += new_record->core.n_cigar * 4;
 
+    // set bin
+    bam1_core_t *c = &new_record->core;
+    if (c->n_cigar > 0) { // recompute "bin" and check CIGAR-qlen consistency
+        hts_pos_t rlen =  bam_cigar2rlen(c->n_cigar, bam_get_cigar(new_record));
+        hts_pos_t qlen = bam_cigar2qlen(c->n_cigar, bam_get_cigar(new_record));
+        if ((new_record->core.flag & BAM_FUNMAP)) rlen=1;
+        new_record->core.bin = hts_reg2bin(new_record->core.pos, new_record->core.pos + rlen, 14, 5);
+        // Sanity check for broken CIGAR alignments
+        if (c->l_qseq > 0 && !(c->flag & BAM_FUNMAP) && qlen != c->l_qseq) {
+            hts_log_error("CIGAR and query sequence lengths differ for %s",
+                    bam_get_qname(new_record));
+            exit(1);
+        }
+    }
+
     // sequence
     memcpy(bam_get_seq(new_record), bam_get_seq(read), stored_qseq_len );
     new_record->l_data += stored_qseq_len;
@@ -537,7 +348,7 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
     int ret = sam_write1(outfile, header, new_record);
 
     if(ret < 0) {
-        fprintf(stderr, "error writing sam record\n");
+        fprintf(stderr, "10xtrim: error writing sam record\n");
         exit(EXIT_FAILURE);
     }
 
