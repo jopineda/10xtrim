@@ -1,3 +1,11 @@
+
+//---------------------------------------------------------
+// Copyright 2020 Ontario Institute for Cancer Research
+// Written by Joanna Pineda (joanna.pineda@oicr.on.ca)
+//---------------------------------------------------------
+//
+// 10xtrim.cpp -- main program
+// detects chimeras and trims problematic subsections
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -9,6 +17,8 @@
 #include <getopt.h>
 #include <htslib/sam.h>
 #include <htslib/hts.h>
+#include <htslib/faidx.h>
+#include <seqan/align.h>
 #include "10xtrim.hpp"
 #include "../overlapper.hpp"
 #include "../common.hpp"
@@ -19,12 +29,14 @@
 #define PROGRAM "10xtrim"
 
 using namespace std;
+using namespace seqan;
 
 namespace opt
 {
     static unsigned int verbose;
     static string bamfile = "";
     static string output_prefix = "default";
+    static string seq = "";
     static int min_score = 20;
     static int padding = 0;
 }
@@ -34,7 +46,7 @@ void parse_args ( int argc, char *argv[])
     // getopt
     extern char *optarg;
     extern int optind, optopt;
-    const char* const short_opts = "hvb:p:m:o:";
+    const char* const short_opts = "hvb:p:m:o:s:";
     const option long_opts[] = {
         {"verbose",             no_argument,        NULL,   'v'},
         {"version",             no_argument,        NULL,   OPT_VERSION},
@@ -42,6 +54,7 @@ void parse_args ( int argc, char *argv[])
         {"out",                 required_argument,  NULL,   'o'},
         {"min-score",           required_argument,  NULL,   'm'},
         {"padding",             required_argument,  NULL,   'p'},
+        {"seq",                 required_argument,  NULL,   's'},
         {"help",                no_argument,        NULL,   'h'},
         { NULL, 0, NULL, 0 }
     };
@@ -58,10 +71,11 @@ void parse_args ( int argc, char *argv[])
     "\n"
     "    -v, --verbose              Display verbose output\n"
     "        --version              Display version\n"
+    "    -s, --seq                  Calculate overlap for sequence only\n"
     "    -b, --bam                  BAM file containing alignment information\n"
     "    -o, --out                  Output prefix for new BAM file\n"
-    "        --min-score            Minimum overlap score\n"
-    "    -p, --padding              Number of bases added to overlap start when trimming\n";
+    "        --min-score            Minimum overlap score [DEFAULT:20]\n"
+    "    -p, --padding              Number of bases added to overlap start when trimming [DEFAULT:0]\n";
 
     int pflag=0; int mflag=0;
     int c;
@@ -74,6 +88,16 @@ void parse_args ( int argc, char *argv[])
         case OPT_VERSION:
             std::cout << VERSION_MESSAGE << endl;
             exit(0);
+        case 's':
+            if ( opt::seq != "" ) {
+                fprintf(stderr, VERSION_MESSAGE);
+                fprintf(stderr, "10xtrim: multiple instances of option -s,--seq. \n\n");
+                fprintf(stderr, USAGE_MESSAGE, argv[0]);
+                exit(EXIT_FAILURE);
+            }
+            arg >> opt::seq;
+            //std::cout << "BAM file = " + opt::bamfile << endl;
+            break;
         case 'b':
             if ( opt::bamfile != "" ) {
                 fprintf(stderr, VERSION_MESSAGE);
@@ -107,8 +131,22 @@ void parse_args ( int argc, char *argv[])
    }
 
     // check mandatory variables and assign defaults
-    if ( opt::bamfile == "" ) {
+    /*if ( opt::bamfile == "" ) {
         fprintf(stderr, "10xtrim: missing -b,--bam option\n\n");
+        fprintf(stderr, USAGE_MESSAGE, argv[0]);
+        exit(EXIT_FAILURE);
+    }*/
+
+    // check if both a sequence and a bamfile given
+    if ( opt::seq != "" &&  opt::bamfile != "" ) {
+        fprintf(stderr, "10xtrim: choose either -b,--bam or -s, --seq option\n\n");
+        fprintf(stderr, USAGE_MESSAGE, argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    // check if at least a sequence and a bamfile given
+    if ( opt::seq == "" &&  opt::bamfile == "" ) {
+        fprintf(stderr, "10xtrim: choose either -b,--bam or -s, --seq option\n\n");
         fprintf(stderr, USAGE_MESSAGE, argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -123,6 +161,7 @@ void parse_args ( int argc, char *argv[])
 }
 
 void trim() {
+
     // open input bamfile
     const char* in_bamfilename = opt::bamfile.c_str();
     htsFile *infile = hts_open(in_bamfilename,"rb"); //open bam file
@@ -132,15 +171,18 @@ void trim() {
     }
     bam1_t *read = bam_init1();
     bam_hdr_t *header = sam_hdr_read(infile);
+
     // initialize output bamfile
     string temp =  opt::output_prefix + ".bam";
     const char* out_filename = temp.c_str();
     htsFile *outfile= hts_open(out_filename, "wb");
     int ret_val = sam_hdr_write(outfile, header); // copy header
+    // checks if header file able to copy to new file
     if ( ret_val < 0 ) {
         fprintf(stderr, "10xtrim: error copying header from input bamfile to new bamfile\n\n");
         exit(EXIT_FAILURE);
     }
+
 
     cout << "read_name\tread_length\ttotal_bases_removed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
     while(sam_read1(infile, header, read) >= 0) {
@@ -154,28 +196,40 @@ void trim() {
             string seq = "";
             string seq_rc = "";
             char nuc;
-            //cout << bam_get_seq(read) << "\n";
-            //exit(0);
+            int num_N = 0;
             size_t n = (size_t) read->core.l_qseq;
             for (size_t i = 0; i < n; ++i) {
                 nuc =  get_nuc(bam_seqi(bam_get_seq(read), i));
                 seq += nuc;
-                seq_rc += get_complement_base(nuc); 
+                seq_rc += get_complement_base(nuc);
+                if (nuc == 'N') {
+                    num_N += 1;
+                }
             }
-
+            // remove any reads with ambiguous bases (N), but still record in output tsv file
+            if (num_N > 0 ) {
+                cout << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< "-" << "\t" << "-" << "\t" << "-" << "\t" << "-"<< "\t" << "-"<< "\t" << "-" << "\t" <<  "-"  <<"\n";           
+                int ret = sam_write1(outfile, header, read);
+                if(ret < 0) {
+                    fprintf(stderr, "10xtrim: error writing sam record\n");
+                    exit(EXIT_FAILURE);
+                }
+                continue;
+            }
             // convert complement to reverse complement
             reverse(seq_rc.begin(), seq_rc.end());
-          
+
             // calculate the overlaps between rev comp and original seq
             SequenceOverlap overlap = Overlapper::computeOverlap(seq, seq_rc);
-            //if ( rname == "A00469:17:HFK7YDSXX:1:1422:11071:34162" ) { cout << overlap.score << "\n"; overlap.printAlignment(seq, seq_rc); exit(0); }
-            //cout << rname << "\t" << seq <<"\t" << overlap.score << "\t" <<  overlap.match[0].start << "\t" << overlap.match[1].start <<"\n";
+
 
             // hairpin detected if
             // - overlap score is greater than thresh
             // - overlap length is greater than 10
             // start modifying cigar
             bool hairpin_detected = ( c->n_cigar && ((int)overlap.score > opt::min_score) && (overlap.total_columns > 10) );
+            bool hairpin_detected_end = hairpin_detected && overlap.match[1].start < 5 && (overlap.match[0].end > qlen - 5);
+            bool hairpin_detected_beg = hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5);
             // old cigar information
             uint32_t *cigar = bam_get_cigar(read);
             vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
@@ -189,8 +243,9 @@ void trim() {
                 old_cigar_idx++;
             }
 
+            // start trimming based on hairpin at end or beginning
             bool is_unmapped;
-            if ( hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5) ) {
+            if ( hairpin_detected_beg ) {
                 // CASE 1 : HAIRPIN AT THE BEGINNING
                 // original:       ====-----------
                 // rev comp: ------====
@@ -217,10 +272,10 @@ void trim() {
                 //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\t" << ref_bases_consumed << "\n";   
                 cout << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
                 write_new_alignment(header, read, outfile, new_cigar, is_unmapped, ref_bases_consumed);
+            } else if ( hairpin_detected_end ) {
                 // CASE 2 : HAIRPIN AT THE END
                 // original: ------====
                 // rev comp:       ====-----------
-            } else if ( hairpin_detected && overlap.match[0].end < 5 && (overlap.match[1].end > qlen - 5) ) {
                 int clip_pos = overlap.match[0].start - opt::padding;
                 if ( clip_pos >= 0 ) { 
                     clip_pos = 0;
@@ -237,7 +292,6 @@ void trim() {
                     }
                     cigar_pos--;
                 }
-                //print_expanded_cigar(expanded_cigar);
                 vector<uint32_t> new_cigar = compress_expanded_cigar(expanded_cigar);
                 // check if unmapped
                 if ( new_cigar.size() == 1 ) {
@@ -247,6 +301,7 @@ void trim() {
                 write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
                     //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\n";
             } else {
+                cout << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< old_cigar_str << "\t" << "-" << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "-" << "\t" <<  "-"  <<"\n";
                 int ret = sam_write1(outfile, header, read);
                 if(ret < 0) {
                     fprintf(stderr, "10xtrim: error writing sam record\n");
@@ -278,8 +333,12 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
 
     new_record->core.flag = read->core.flag;
     if (is_unmapped) {
-       new_record->core.flag = (read->core.flag |= 0x0004);
+       new_record->core.flag = (read->core.flag |= BAM_FUNMAP);
        new_record->core.pos = 0;
+       new_record->core.qual = 0;
+       if ( new_record->core.flag & BAM_FSECONDARY ) {
+           new_record->core.flag -= BAM_FSECONDARY;
+       }
     }
     new_record->core.l_qseq = read->core.l_qseq;
     // this is in bases
@@ -355,11 +414,47 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
     bam_destroy1(new_record); // automatically frees malloc'd segment
 }
 
+void printOverlap() {
+      string seq = opt::seq;
+      string seq_rc = "";
+      for ( auto base : opt::seq) {
+          seq_rc += get_complement_base(base); 
+      }
+
+      // convert complement to reverse complement
+      reverse(seq_rc.begin(), seq_rc.end());
+          
+      // calculate the overlaps between rev comp and original seq
+      SequenceOverlap overlap = Overlapper::computeOverlap(seq, seq_rc);
+      cout << overlap.score << "\n";
+      overlap.printAlignment(seq, seq_rc);
+
+      int len = opt::seq.length();
+
+      bool hairpin_detected = ( (int) overlap.score > opt::min_score) && (overlap.total_columns > 10);
+      bool hairpin_detected_end = hairpin_detected && overlap.match[1].start < 5 && (overlap.match[0].end > len - 5);
+      bool hairpin_detected_beg = hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > len - 5);
+
+      cout << "original overlap start:\t" << overlap.match[0].start << "\n";
+      cout << "original overlap end:\t" << overlap.match[0].end << "\n";
+      cout << "rev comp overlap start:\t" << overlap.match[1].start << "\n";
+      cout << "rev comp overlap end:\t" << overlap.match[1].end << "\n";
+      cout << "total columns: \t" << overlap.total_columns << "\n";
+      cout << "hairpin detected: \t" << hairpin_detected <<"\n"; 
+      cout << "hairpin detected beg: \t" << hairpin_detected_beg <<"\n"; 
+      cout << "hairpin detected end: \t" << hairpin_detected_end <<"\n"; 
+
+}
+
 
 // main() is where program execution begins.
 int main(int argc, char *argv[]) {
    parse_args(argc, argv);
-   trim();
+   if ( opt::seq != "" ) {
+       printOverlap();
+   } else if ( opt::bamfile != "" ) {
+       trim();
+   }
    return 0;
 }
 

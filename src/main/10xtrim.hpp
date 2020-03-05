@@ -1,3 +1,11 @@
+  
+//---------------------------------------------------------
+// Copyright 2020 Ontario Institute for Cancer Research
+// Written by Joanna Pineda (joanna.pineda@oicr.on.ca)
+//---------------------------------------------------------
+//
+// 10x.hpp -- main program's header
+
 #include <stdio.h>
 #include <stdlib.h>
 using namespace std;

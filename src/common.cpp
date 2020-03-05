@@ -1,3 +1,12 @@
+  
+//---------------------------------------------------------
+// Copyright 2020 Ontario Institute for Cancer Research
+// Written by Joanna Pineda (joanna.pineda@oicr.on.ca)
+//---------------------------------------------------------
+//
+// common.cpp -- common utilities
+
+
 char get_nuc(int x) {
     switch (x) {
         case 1: return 'A';

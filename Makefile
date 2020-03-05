@@ -1,5 +1,5 @@
 # Sub directories containing source code, except for the main programs
-SUBDIRS := ./src ./ .
+SUBDIRS := ./src . ./include
 
 #
 # Set libraries, paths, flags and options
@@ -8,10 +8,13 @@ SUBDIRS := ./src ./ .
 #Basic flags every build needs
 LIBS = -lz -llzma -lbz2  -lpthread -lcurl -lssl -lcrypto
 CXXFLAGS ?= -g -O3 -Wall -Wextra
-CXXFLAGS += -std=c++11 
+CXXFLAGS += -std=c++14 
 CFLAGS ?= -O3 -std=c99
 CXX ?= g++
 CC ?= gcc
+
+# Add seqan
+#CXXFLAGS+=-DSEQAN_ENABLE_DEBUG=1 -I./include/seqan/include
 
 # Change the value of HDF5, EIGEN, or HTS below to any value to disable compilation of bundled code
 HTS?=install

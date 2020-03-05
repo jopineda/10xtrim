@@ -1,3 +1,10 @@
+//---------------------------------------------------------
+// Copyright 2020 Ontario Institute for Cancer Research
+// Written by Joanna Pineda (joanna.pineda@oicr.on.ca)
+//---------------------------------------------------------
+//
+// cigar.hpp -- methods for cigar manipulations' header
+
 #include <algorithm>
 #include <iostream>
 #include <fstream>
