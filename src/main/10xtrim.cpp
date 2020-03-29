@@ -1,4 +1,3 @@
-
 //---------------------------------------------------------
 // Copyright 2020 Ontario Institute for Cancer Research
 // Written by Joanna Pineda (joanna.pineda@oicr.on.ca)
@@ -18,7 +17,6 @@
 #include <htslib/sam.h>
 #include <htslib/hts.h>
 #include <htslib/faidx.h>
-#include <seqan/align.h>
 #include "10xtrim.hpp"
 #include "../overlapper.hpp"
 #include "../common.hpp"
@@ -29,7 +27,6 @@
 #define PROGRAM "10xtrim"
 
 using namespace std;
-using namespace seqan;
 
 namespace opt
 {
@@ -66,8 +63,8 @@ void parse_args ( int argc, char *argv[])
     "\n";
 
     static const char* USAGE_MESSAGE =
-    "usage: 10xtrim [OPTIONS] --bam test.bam \n"
-    "Trim 10x-artifacts and create new bam file\n"
+    "usage: 10xtrim [OPTIONS] --bam test.bam > trimmed.sam \n"
+    "Trim 10x artifacts and create new bam file\n"
     "\n"
     "    -v, --verbose              Display verbose output\n"
     "        --version              Display version\n"
@@ -96,7 +93,6 @@ void parse_args ( int argc, char *argv[])
                 exit(EXIT_FAILURE);
             }
             arg >> opt::seq;
-            //std::cout << "BAM file = " + opt::bamfile << endl;
             break;
         case 'b':
             if ( opt::bamfile != "" ) {
@@ -130,13 +126,6 @@ void parse_args ( int argc, char *argv[])
         }
    }
 
-    // check mandatory variables and assign defaults
-    /*if ( opt::bamfile == "" ) {
-        fprintf(stderr, "10xtrim: missing -b,--bam option\n\n");
-        fprintf(stderr, USAGE_MESSAGE, argv[0]);
-        exit(EXIT_FAILURE);
-    }*/
-
     // check if both a sequence and a bamfile given
     if ( opt::seq != "" &&  opt::bamfile != "" ) {
         fprintf(stderr, "10xtrim: choose either -b,--bam or -s, --seq option\n\n");
@@ -161,7 +150,6 @@ void parse_args ( int argc, char *argv[])
 }
 
 void trim() {
-
     // open input bamfile
     const char* in_bamfilename = opt::bamfile.c_str();
     htsFile *infile = hts_open(in_bamfilename,"rb"); //open bam file
@@ -184,7 +172,7 @@ void trim() {
     }
 
 
-    cout << "read_name\tread_length\ttotal_bases_removed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
+    cout << "read_name\tread_length\ttotal_bases_trimmed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
     while(sam_read1(infile, header, read) >= 0) {
         if( (read->core.flag & BAM_FUNMAP) == 0 ) {
             // get basic information
@@ -206,6 +194,7 @@ void trim() {
                     num_N += 1;
                 }
             }
+
             // remove any reads with ambiguous bases (N), but still record in output tsv file
             if (num_N > 0 ) {
                 cout << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< "-" << "\t" << "-" << "\t" << "-" << "\t" << "-"<< "\t" << "-"<< "\t" << "-" << "\t" <<  "-"  <<"\n";           
@@ -216,6 +205,7 @@ void trim() {
                 }
                 continue;
             }
+
             // convert complement to reverse complement
             reverse(seq_rc.begin(), seq_rc.end());
 
@@ -230,6 +220,7 @@ void trim() {
             bool hairpin_detected = ( c->n_cigar && ((int)overlap.score > opt::min_score) && (overlap.total_columns > 10) );
             bool hairpin_detected_end = hairpin_detected && overlap.match[1].start < 5 && (overlap.match[0].end > qlen - 5);
             bool hairpin_detected_beg = hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > qlen - 5);
+
             // old cigar information
             uint32_t *cigar = bam_get_cigar(read);
             vector<char> expanded_cigar = bam_expand_cigar(cigar, (unsigned int)c->n_cigar);
@@ -415,34 +406,34 @@ void write_new_alignment(bam_hdr_t *header, bam1_t *read, htsFile *outfile, vect
 }
 
 void printOverlap() {
-      string seq = opt::seq;
-      string seq_rc = "";
-      for ( auto base : opt::seq) {
-          seq_rc += get_complement_base(base); 
-      }
+    string seq = opt::seq;
+    string seq_rc = "";
+    for ( auto base : opt::seq) {
+        seq_rc += get_complement_base(base); 
+    }
 
-      // convert complement to reverse complement
-      reverse(seq_rc.begin(), seq_rc.end());
+    // convert complement to reverse complement
+    reverse(seq_rc.begin(), seq_rc.end());
           
-      // calculate the overlaps between rev comp and original seq
-      SequenceOverlap overlap = Overlapper::computeOverlap(seq, seq_rc);
-      cout << overlap.score << "\n";
-      overlap.printAlignment(seq, seq_rc);
+   // calculate the overlaps between rev comp and original seq
+   SequenceOverlap overlap = Overlapper::computeOverlap(seq, seq_rc);
+   cout << overlap.score << "\n";
+   overlap.printAlignment(seq, seq_rc);
 
-      int len = opt::seq.length();
+   int len = opt::seq.length();
 
-      bool hairpin_detected = ( (int) overlap.score > opt::min_score) && (overlap.total_columns > 10);
-      bool hairpin_detected_end = hairpin_detected && overlap.match[1].start < 5 && (overlap.match[0].end > len - 5);
-      bool hairpin_detected_beg = hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > len - 5);
+   bool hairpin_detected = ( (int) overlap.score > opt::min_score) && (overlap.total_columns > 10);
+   bool hairpin_detected_end = hairpin_detected && overlap.match[1].start < 5 && (overlap.match[0].end > len - 5);
+   bool hairpin_detected_beg = hairpin_detected && overlap.match[0].start <  5 &&  (overlap.match[1].end > len - 5);
 
-      cout << "original overlap start:\t" << overlap.match[0].start << "\n";
-      cout << "original overlap end:\t" << overlap.match[0].end << "\n";
-      cout << "rev comp overlap start:\t" << overlap.match[1].start << "\n";
-      cout << "rev comp overlap end:\t" << overlap.match[1].end << "\n";
-      cout << "total columns: \t" << overlap.total_columns << "\n";
-      cout << "hairpin detected: \t" << hairpin_detected <<"\n"; 
-      cout << "hairpin detected beg: \t" << hairpin_detected_beg <<"\n"; 
-      cout << "hairpin detected end: \t" << hairpin_detected_end <<"\n"; 
+   cout << "original overlap start:\t" << overlap.match[0].start << "\n";
+   cout << "original overlap end:\t" << overlap.match[0].end << "\n";
+   cout << "rev comp overlap start:\t" << overlap.match[1].start << "\n";
+   cout << "rev comp overlap end:\t" << overlap.match[1].end << "\n";
+   cout << "total columns: \t" << overlap.total_columns << "\n";
+   cout << "hairpin detected: \t" << hairpin_detected <<"\n"; 
+   cout << "hairpin detected beg: \t" << hairpin_detected_beg <<"\n"; 
+   cout << "hairpin detected end: \t" << hairpin_detected_end <<"\n"; 
 
 }
 

@@ -67,7 +67,6 @@ string cigar_ops_to_string(const vector<uint32_t>& ops)
 
 vector<uint32_t> compress_expanded_cigar(vector<char> expanded_cigar) {
 	int len = 0; 
-	char op;
     vector<uint32_t> new_cigar;
     uint32_t incoming;
     char prev_op = expanded_cigar[0];
