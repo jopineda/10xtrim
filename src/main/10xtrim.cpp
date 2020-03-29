@@ -4,7 +4,7 @@
 //---------------------------------------------------------
 //
 // 10xtrim.cpp -- main program
-// detects chimeras and trims problematic subsections
+// detects inverted repeat signature and trims problematic subsections
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -30,7 +30,6 @@ using namespace std;
 
 namespace opt
 {
-    static unsigned int verbose;
     static string bamfile = "";
     static string output_prefix = "default";
     static string seq = "";
@@ -43,7 +42,7 @@ void parse_args ( int argc, char *argv[])
     // getopt
     extern char *optarg;
     extern int optind, optopt;
-    const char* const short_opts = "hvb:p:m:o:s:";
+    const char* const short_opts = "hb:p:m:o:s:";
     const option long_opts[] = {
         {"verbose",             no_argument,        NULL,   'v'},
         {"version",             no_argument,        NULL,   OPT_VERSION},
@@ -66,22 +65,18 @@ void parse_args ( int argc, char *argv[])
     "usage: 10xtrim [OPTIONS] --bam test.bam > trimmed.sam \n"
     "Trim 10x artifacts and create new bam file\n"
     "\n"
-    "    -v, --verbose              Display verbose output\n"
     "        --version              Display version\n"
     "    -s, --seq                  Calculate overlap for sequence only\n"
     "    -b, --bam                  BAM file containing alignment information\n"
-    "    -o, --out                  Output prefix for new BAM file\n"
-    "        --min-score            Minimum overlap score [DEFAULT:20]\n"
-    "    -p, --padding              Number of bases added to overlap start when trimming [DEFAULT:0]\n";
+    "    -o, --out                  Output prefix for 10xtrim statistics file\n"
+    "    -m, --min-score            Minimum overlap score [DEFAULT:20]\n"
+    "    -p, --padding              Number of bases added to overlap start when trimming [DEFAULT:0]\n\n";
 
     int pflag=0; int mflag=0;
     int c;
     while ( (c = getopt_long(argc, argv, short_opts, long_opts, NULL)) != -1 ) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch(c) {
-        case 'v':
-            opt::verbose = 1; // set verbose flag
-            break;
         case OPT_VERSION:
             std::cout << VERSION_MESSAGE << endl;
             exit(0);
@@ -123,7 +118,10 @@ void parse_args ( int argc, char *argv[])
        case 'o':
             arg >> opt::output_prefix;
             break;
-        }
+       case '?':
+          fprintf(stderr, USAGE_MESSAGE, argv[0]);
+          exit(EXIT_FAILURE); 
+       }
    }
 
     // check if both a sequence and a bamfile given
@@ -161,9 +159,9 @@ void trim() {
     bam_hdr_t *header = sam_hdr_read(infile);
 
     // initialize output bamfile
-    string temp =  opt::output_prefix + ".bam";
-    const char* out_filename = temp.c_str();
-    htsFile *outfile= hts_open(out_filename, "wb");
+    //string temp =  opt::output_prefix + ".bam";
+    //const char* out_filename = temp.c_str();
+    htsFile *outfile= hts_open("-", "w");
     int ret_val = sam_hdr_write(outfile, header); // copy header
     // checks if header file able to copy to new file
     if ( ret_val < 0 ) {
@@ -171,8 +169,10 @@ void trim() {
         exit(EXIT_FAILURE);
     }
 
-
-    cout << "read_name\tread_length\ttotal_bases_trimmed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
+    string statfilename =  opt::output_prefix + ".tsv";
+    ofstream statfile;
+    statfile.open(statfilename.c_str(), ios::out | ios::trunc );
+    statfile << "read_name\tread_length\ttotal_bases_trimmed\told_cigar\tnew_cigar\toverlap_score\toverlap.match[0].start\toverlap.match[1].start\thairpin_beginning\tseq\n";
     while(sam_read1(infile, header, read) >= 0) {
         if( (read->core.flag & BAM_FUNMAP) == 0 ) {
             // get basic information
@@ -197,7 +197,7 @@ void trim() {
 
             // remove any reads with ambiguous bases (N), but still record in output tsv file
             if (num_N > 0 ) {
-                cout << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< "-" << "\t" << "-" << "\t" << "-" << "\t" << "-"<< "\t" << "-"<< "\t" << "-" << "\t" <<  "-"  <<"\n";           
+                statfile << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< "-" << "\t" << "-" << "\t" << "-" << "\t" << "-"<< "\t" << "-"<< "\t" << "-" << "\t" <<  "-"  <<"\n";           
                 int ret = sam_write1(outfile, header, read);
                 if(ret < 0) {
                     fprintf(stderr, "10xtrim: error writing sam record\n");
@@ -242,7 +242,7 @@ void trim() {
                 // rev comp: ------====
                 int clip_pos = overlap.match[0].end + opt::padding;
                 if ( clip_pos >= qlen ) clip_pos = overlap.match[0].end;
-                int total_bases_to_trim = clip_pos + 1;
+                int total_bases_to_trim = clip_pos;
                 int cigar_pos = 0;
                 int read_pos = 0;
                 int ref_bases_consumed = 0;
@@ -261,18 +261,18 @@ void trim() {
                     is_unmapped = true;
                 }
                 //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\t" << ref_bases_consumed << "\n";   
-                cout << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
+                statfile << rname << "\t" << to_string(qlen) << "\t" << total_bases_to_trim << "\t" << old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "1" << "\t" <<  seq  <<"\n";
                 write_new_alignment(header, read, outfile, new_cigar, is_unmapped, ref_bases_consumed);
             } else if ( hairpin_detected_end ) {
                 // CASE 2 : HAIRPIN AT THE END
                 // original: ------====
                 // rev comp:       ====-----------
                 int clip_pos = overlap.match[0].start - opt::padding;
-                if ( clip_pos >= 0 ) { 
+                if ( clip_pos < 0 ) { 
                     clip_pos = 0;
                     is_unmapped = true;
                 }
-                int total_bases_to_trim = qlen - clip_pos + 1;
+                int total_bases_to_trim = qlen - clip_pos;
                 int cigar_pos = expanded_cigar.size();
                 int read_pos = qlen - 1;
                 while ( read_pos >= clip_pos ) {
@@ -288,11 +288,11 @@ void trim() {
                 if ( new_cigar.size() == 1 ) {
                     is_unmapped = true;
                 }
-                cout << rname << "\t" << to_string(qlen) << "\t" <<  total_bases_to_trim << "\t"<< old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
+                statfile << rname << "\t" << to_string(qlen) << "\t" <<  total_bases_to_trim << "\t"<< old_cigar_str << "\t" << cigar_ops_to_string(new_cigar) << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "0" << "\t" <<  seq  <<"\n";
                 write_new_alignment(header, read, outfile, new_cigar, is_unmapped, 0);
                     //cout << clip_pos << "\t" << old_cigar_str  << "\t"<< cigar_ops_to_string(new_cigar) << "\n";
             } else {
-                cout << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< old_cigar_str << "\t" << "-" << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "-" << "\t" <<  "-"  <<"\n";
+                statfile << rname << "\t" << to_string(qlen) << "\t" <<  "0" << "\t"<< old_cigar_str << "\t" << "-" << "\t" << overlap.score << "\t" << overlap.match[0].start << "\t" << overlap.match[1].start << "\t" << "-" << "\t" <<  "-"  <<"\n";
                 int ret = sam_write1(outfile, header, read);
                 if(ret < 0) {
                     fprintf(stderr, "10xtrim: error writing sam record\n");
@@ -434,7 +434,6 @@ void printOverlap() {
    cout << "hairpin detected: \t" << hairpin_detected <<"\n"; 
    cout << "hairpin detected beg: \t" << hairpin_detected_beg <<"\n"; 
    cout << "hairpin detected end: \t" << hairpin_detected_end <<"\n"; 
-
 }
 
 
