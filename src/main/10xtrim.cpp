@@ -22,12 +22,12 @@
 #include "../common.hpp"
 #include "../cigar.hpp"
 
-
 #define VERSION "beta"
 #define PROGRAM "10xtrim"
 
 using namespace std;
 
+// holds user's input
 namespace opt
 {
     static string bamfile = "";
@@ -39,12 +39,32 @@ namespace opt
 
 void parse_args ( int argc, char *argv[])
 {
+    // Parses through command line arguments and
+    // modifies opt structure to store user's input 
+
+    // defining some output messages
+    static const char* VERSION_MESSAGE =
+    PROGRAM " version " VERSION "\n"
+    "Written by Joanna Pineda.\n"
+    "\n";
+
+    static const char* USAGE_MESSAGE =
+    "usage: 10xtrim [OPTIONS] --bam phased.bam > phased.trimmed.sam \n"
+    "Trim 10x artifacts and create new bam file\n"
+    "\n"
+    "        --version              Display version\n"
+    "    -s, --seq                  Calculate overlap for sequence only\n"
+    "    -b, --bam                  Phased BAM file containing alignment information\n"
+    "    -o, --out                  Output prefix for 10xtrim statistics tsv file\n"
+    "    -m, --min-score            Minimum overlap score [DEFAULT:20]\n"
+    "    -p, --padding              Number of bases added to overlap start when trimming [DEFAULT:0]\n\n";
+
+
     // getopt
     extern char *optarg;
     extern int optind, optopt;
     const char* const short_opts = "hb:p:m:o:s:";
     const option long_opts[] = {
-        {"verbose",             no_argument,        NULL,   'v'},
         {"version",             no_argument,        NULL,   OPT_VERSION},
         {"bam",                 required_argument,  NULL,   'b'},
         {"out",                 required_argument,  NULL,   'o'},
@@ -55,62 +75,46 @@ void parse_args ( int argc, char *argv[])
         { NULL, 0, NULL, 0 }
     };
 
-
-    static const char* VERSION_MESSAGE =
-    PROGRAM " version " VERSION "\n"
-    "Written by Joanna Pineda.\n"
-    "\n";
-
-    static const char* USAGE_MESSAGE =
-    "usage: 10xtrim [OPTIONS] --bam test.bam > trimmed.sam \n"
-    "Trim 10x artifacts and create new bam file\n"
-    "\n"
-    "        --version              Display version\n"
-    "    -s, --seq                  Calculate overlap for sequence only\n"
-    "    -b, --bam                  BAM file containing alignment information\n"
-    "    -o, --out                  Output prefix for 10xtrim statistics file\n"
-    "    -m, --min-score            Minimum overlap score [DEFAULT:20]\n"
-    "    -p, --padding              Number of bases added to overlap start when trimming [DEFAULT:0]\n\n";
-
+    // marks if padding score or minimum overlap score found already
     int pflag=0; int mflag=0;
+    // loops through the input arguments
     int c;
     while ( (c = getopt_long(argc, argv, short_opts, long_opts, NULL)) != -1 ) {
-    std::istringstream arg(optarg != NULL ? optarg : "");
-    switch(c) {
-        case OPT_VERSION:
-            std::cout << VERSION_MESSAGE << endl;
-            exit(0);
-        case 's':
-            if ( opt::seq != "" ) {
-                fprintf(stderr, VERSION_MESSAGE);
-                fprintf(stderr, "10xtrim: multiple instances of option -s,--seq. \n\n");
-                fprintf(stderr, USAGE_MESSAGE, argv[0]);
-                exit(EXIT_FAILURE);
-            }
-            arg >> opt::seq;
-            break;
-        case 'b':
-            if ( opt::bamfile != "" ) {
-                fprintf(stderr, VERSION_MESSAGE);
-                fprintf(stderr, "10xtrim: multiple instances of option -b,--bam. \n\n");
-                fprintf(stderr, USAGE_MESSAGE, argv[0]);
-                exit(EXIT_FAILURE);
-            }
-            arg >> opt::bamfile;
-            //std::cout << "BAM file = " + opt::bamfile << endl;
-            break;
-       case 'p':
-            if ( pflag == 1 ) {
-                fprintf(stderr, PROGRAM ": multiple instances of option -p,--padding. \n\n");
-                fprintf(stderr, USAGE_MESSAGE, argv[0]);
-                exit(EXIT_FAILURE);
+        std::istringstream arg(optarg != NULL ? optarg : "");
+        switch(c) {
+            case OPT_VERSION:
+                std::cout << VERSION_MESSAGE << endl;
+                exit(0);
+            case 's':
+                if ( opt::seq != "" ) {
+                    std::cerr << VERSION_MESSAGE;
+                    std::cerr << PROGRAM << ": multiple instances of option -s,--seq. \n\n";
+                    std::cerr << USAGE_MESSAGE;
+                    exit(EXIT_FAILURE);
+                }
+                arg >> opt::seq;
+                break;
+            case 'b':
+                if ( opt::bamfile != "" ) {
+                    std::cerr << VERSION_MESSAGE;
+                    std::cerr << PROGRAM << ": multiple instances of option -b,--bam. \n\n";
+                    std::cerr << USAGE_MESSAGE;
+                    exit(EXIT_FAILURE);
+                }
+                arg >> opt::bamfile;
+                break;
+            case 'p':
+                if ( pflag == 1 ) {
+                    std::cerr << PROGRAM << ": multiple instances of option -p,--padding. \n\n";
+                    std::cerr << USAGE_MESSAGE;
+                    exit(EXIT_FAILURE);
             }
             pflag = 1;
             arg >> opt::padding;
        case 'm':
             if ( mflag == 1 ) {
-                fprintf(stderr, PROGRAM ": multiple instances of option -m,--min-score. \n\n");
-                fprintf(stderr, USAGE_MESSAGE, argv[0]);
+                std::cerr << PROGRAM ": multiple instances of option -m,--min-score. \n\n";
+                std::cerr << USAGE_MESSAGE;
                 exit(EXIT_FAILURE);
             }
             mflag = 1;
@@ -119,30 +123,30 @@ void parse_args ( int argc, char *argv[])
             arg >> opt::output_prefix;
             break;
        case '?':
-          fprintf(stderr, USAGE_MESSAGE, argv[0]);
+          std::cerr << USAGE_MESSAGE;
           exit(EXIT_FAILURE); 
        }
    }
 
     // check if both a sequence and a bamfile given
     if ( opt::seq != "" &&  opt::bamfile != "" ) {
-        fprintf(stderr, "10xtrim: choose either -b,--bam or -s, --seq option\n\n");
-        fprintf(stderr, USAGE_MESSAGE, argv[0]);
+        std::cerr << PROGRAM << ": choose either -b,--bam or -s, --seq option\n\n";
+        std::cerr << USAGE_MESSAGE;
         exit(EXIT_FAILURE);
     }
 
     // check if at least a sequence and a bamfile given
     if ( opt::seq == "" &&  opt::bamfile == "" ) {
-        fprintf(stderr, "10xtrim: choose either -b,--bam or -s, --seq option\n\n");
-        fprintf(stderr, USAGE_MESSAGE, argv[0]);
+        std::cerr << PROGRAM << ": choose either -b,--bam or -s, --seq option\n\n";
+        std::cerr << USAGE_MESSAGE;
         exit(EXIT_FAILURE);
     }
 
     if (optind < argc) {
-        printf("WARNING: invalid option thus ignored: ");
+        std::cerr << "WARNING: invalid option thus ignored: ";
         while (optind < argc)
-            printf("%s ", argv[optind++]);
-        printf("\n");
+            std::cerr << argv[optind++] << "\n";
+        std::cerr << "\n";
     }
 
 }
