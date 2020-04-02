@@ -6,7 +6,7 @@ The original purpose of 10xtrim was to improve the *tumour-only* somatic mutatio
 **Requirements**:
 
 * `10xtrim`
-* `samtools` [here!](https://htslib.org)
+* `samtools` [`samtools`](https://htslib.org)
 * `picard` [here!](https://github.com/broadinstitute/picard)
 * `python 2.7`
 * `MuTect1` [here!](https://github.com/broadinstitute/mutect)
@@ -54,7 +54,7 @@ This MNV has many softclipped bases on the evidence reads, which present chimeri
 For example for the evidence read with this sequence:
 
 ```
-TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA*TT*TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
+TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA<span style="color:red">TT</span>TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
 ```
 
 The subsections map to nearby locations in the genome. As seen in this BLAT result:
