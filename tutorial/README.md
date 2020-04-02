@@ -24,7 +24,7 @@ You can download the example dataset we will use here: ::
 
 * Sample: HCC1954 (Human cell line derived from a primary stage IIA, grade 3 invasive ductal carcinoma) 
 * Instrument : Illumina X Ten
-* Region: "chr20:200000-202000"
+* Region: "chr20:7586000-7588000"
 * Reference: hg19
 * Tumour from: `here <https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954T_WGS_210>`
 * Normal from: `here <https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954N_WGS_210>`
@@ -39,12 +39,36 @@ You should find the following files:
 * ``cosmic.hg19.vcf`` : known somatic mutations from COSMIC
 * ``dbsnp.hg19.vcf``  : known common variants from dbSNP
 
-Analysis workflow
+Objective
 -------------------------------
 
-The pipeline below describes the recommended analysis workflow. In this tutorial, we will remove a 10X-specific artifact in a small region of this sample.
+In this tutorial, we aim to remove a 10X-specific false positive (FP) variant when calling in tumour-only mode. 
+Here, we define a 10X-specific artifact as a variant NOT found when calling somatc mutations in matched tumour-normal mode.
 
-We define a 10X-specific artifact as a variant NOT found when calling somatc mutations in matched tumour-normal mode.
+The FP multinucleotide variant (MNV) we are removing looks like this:
+
+<img src="chr20_7587045_pretrim.png" width="30%">
+
+This MNV has many softclipped bases on the evidence reads, which present chimeric signatures. The subsections map to nearby locations in the genome.
+
+```
+   ACTIONS      QUERY   SCORE START   END QSIZE IDENTITY  CHROM           STRAND  START       END   SPAN
+--------------------------------------------------------------------------------------------------------
+browser details YourSeq   109    39   151   151    98.3%  chr20           +     7587036   7587148    113
+browser details YourSeq    58     1    58   151   100.0%  chr20           -     7587036   7587093     58
+```
+
+And show this inverted repeat signature, that can form self-overlaps:
+
+```
+          10        20        30        40
+.-T|                                            A
+   CATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCT T
+   GTATCCGGACGAACGGTAAATATACAGAAGAAACCTCTTTATAGA T
+\ -^                                            T
+       90        80        70        60        50
+ 
+```
 
 Data preprocessing (already done)
 ------------------------------------
@@ -83,7 +107,7 @@ We used the following parameters with `MuTect1 <https://github.com/broadinstitut
 Set up on OICR cluster
 ------------------------------------------------------------------------
 
-Load modules: ::
+Load modules:
 
     module load picard
     module load samtools
