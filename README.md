@@ -17,7 +17,7 @@ make
 ```
 
 ## Workflow Examples
-![workflow](10xtrim_workflow.png)<!-- .element height="50%" width="50%" -->
+![workflow, 50%]](10xtrim_workflow.png)<!-- .element height="50%" width="50%" -->
 
 ### Data preprocessing
 
