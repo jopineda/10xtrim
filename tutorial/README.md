@@ -166,7 +166,7 @@ samtools sort tumour.phased.md.trimmed.fixmates.bam > tumour.phased.md.fixmates.
 samtools index tumour.phased.md.trimmed.fixmates.sorted.bam
 ```
 
-Call somatic mutations in tumour-only mode:
+!!!Call somatic mutations in tumour-only mode:
 ------------------------------------------------------------------------
 
 We can now call our somatic mutations using MuTect1 in tumour-only mode:
@@ -184,6 +184,7 @@ java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      --normal_sample_name HCC1954N\
      --normal_panel data/pon.hg19.mutect1.siteonly.vcf
 ```
+!!!
 
 Visualize difference in IGV:
 ------------------------------------------------------------------------
