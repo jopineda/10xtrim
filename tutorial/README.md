@@ -56,8 +56,9 @@ For example for the evidence read with this sequence:
 ```
 TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA*TT*TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
 ```
+The FP variant is denoted by the surrounding asterisks.
 
-The subsections map to nearby locations in the genome. As seen in this BLAT result:
+The subsections of the chimera map to nearby locations in the genome. As seen in this BLAT result:
 
 ```
    ACTIONS      QUERY   SCORE START   END QSIZE IDENTITY  CHROM           STRAND  START       END   SPAN
@@ -78,8 +79,12 @@ And show this inverted repeat signature, that can form self-overlaps. As seen in
  
 ```
 
-Data preprocessing (already done)
+We use 10xtrim to identify these reads, and further softclip these reads to remove these 10X-specific artifacts.
+
+Pre-processing steps (already done)
 ------------------------------------
+
+## Marking duplicates, again
 
 We recommend an additional round of marking duplicates. LongRanger provides the phased BAM file and carries out a barcode-aware markng of duplicates. Reads with missing backcodes may not be missed.
 
@@ -98,13 +103,15 @@ java -jar [path-to-picard-tools]/MarkDuplicates.jar\
 samtools index tumour.phased.md.sorted.bam
 ```
 
-Computing the truth set (already done)
------------------------------------------------
+## Identifying false positives
 
-As running MuTect1 may take some time, we also included the matched tumour-normal calls for you (``10x_tumour_normal.mutect1.vcf``).
+To identify FP, we ran MuTect1 in matched tumour-normal mode. 
 
-We used the following parameters with `MuTect1 <https://github.com/broadinstitute/mutect>`_: ::
+A FP in this case is a variant found tumour-only mode, but not found in matched tumour-normal mode.
+ 
+The following parameters were used:
 
+```
     java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
          -T MuTect -L chr20\
          -R refdata-hg19-2.1.0/fasta/genome.fa\
@@ -117,7 +124,7 @@ We used the following parameters with `MuTect1 <https://github.com/broadinstitut
          --tumor_sample_name HCC1954T\
          --normal_sample_name HCC1954N\
          --normal_panel pon.hg19.mutect1.siteonly.vcf
-
+```
 
 Set up on OICR cluster
 ------------------------------------------------------------------------
@@ -145,7 +152,7 @@ Then we need to fix any mate pairs where 10xtrim completely unmaps an alignment.
 Post-processing steps for downstream analyses:
 ------------------------------------------------------------------------
 
-We can use Picard's Fixmateinformation: ::
+We can use Picard's Fixmateinformation:
 
 ```
     java -jar [path-to-picard-tools]/FixMateInformation.jar\
