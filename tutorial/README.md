@@ -6,10 +6,10 @@ The original purpose of 10xtrim was to improve the *tumour-only* somatic mutatio
 **Requirements**:
 
 * `10xtrim`
-* `samtools` [`samtools`](https://htslib.org)
-* `picard` [here!](https://github.com/broadinstitute/picard)
+* [`samtools`](https://htslib.org)
+* [`picard`](https://github.com/broadinstitute/picard)
 * `python 2.7`
-* `MuTect1` [here!](https://github.com/broadinstitute/mutect)
+* [`MuTect1`](https://github.com/broadinstitute/mutect)
 
 Download example dataset
 ------------------------------------
@@ -26,15 +26,15 @@ You can download the example dataset we will use here: ::
 * Instrument : Illumina X Ten
 * Region: "chr20:7586000-7588000"
 * Reference: hg19
-* [Tumour phased BAM!](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954T_WGS_210)
-* [Normal phased BAM!](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954N_WGS_210)
+* [Tumour phased BAM](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954T_WGS_210)
+* [Normal phased BAM](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954N_WGS_210)
 
 This is a subset of phased reads aligned to a 2kb region of hg19 reference genome. 
 
 You should find the following files:
 
-* ``tumour.phased.marked_dups.sorted.bam`` : tumour read alignments to reference
-* ``normal.phased.marked_dups.sorted.bam`` : normal read alignments to reference
+* ``tumour.phased.md.sorted.bam`` : tumour read alignments to reference
+* ``normal.phased.md.sorted.bam`` : tumour read alignments to reference
 * ``highconf.hg19.bed`` : high confidence intervals from GIAB
 * ``cosmic.hg19.vcf`` : known somatic mutations from COSMIC
 * ``dbsnp.hg19.vcf``  : known common variants from dbSNP
@@ -54,7 +54,7 @@ This MNV has many softclipped bases on the evidence reads, which present chimeri
 For example for the evidence read with this sequence:
 
 ```
-TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA<span style="color:red">TT</span>TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
+TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA*TT*TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
 ```
 
 The subsections map to nearby locations in the genome. As seen in this BLAT result:
@@ -85,11 +85,18 @@ We recommend an additional round of marking duplicates. LongRanger provides the 
 
 This step can occur before or after 10xtrim.
 
-In the interest of time, we already carried out mark duplicates with the following commands on Picard: ::
+In the interest of time, we already carried out mark duplicates with the following commands on Picard:
 
-    nanopolish index -d fast5_files/ reads.fasta
+```
+# mark duplicates
+java -jar [path-to-picard-tools]/MarkDuplicates.jar\
+    I=tumour.phased.sorted.bam \
+    O=tumour.phased.md.sorted.bam\
+    M=tumour.phased.md.metrics.txt"
 
-We get the following files: ````, and ````.
+# index bam
+samtools index tumour.phased.md.sorted.bam
+```
 
 Computing the truth set (already done)
 -----------------------------------------------
@@ -101,12 +108,12 @@ We used the following parameters with `MuTect1 <https://github.com/broadinstitut
     java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
          -T MuTect -L chr20\
          -R refdata-hg19-2.1.0/fasta/genome.fa\
-         -I:tumor HCC1954T_WGS_210_phased_possorted_bam.chr20.marked_dups.sorted.bam\
-         -N:normal HCC1954N_WGS_210_phased_possorted_bam.chr20.marked_dups.sorted.bam\
-         --vcf HCC1954.10x_tumour_normal.chr20.marked_dups.vcf\
-         -o HCC1954.10x_tumour_normal.chr20.marked_dups.out\
-         --cosmic ~/projects/10x-somatic-call/data/COSMIC-GRCh37/Cosmic.hg19.vcf\
-         --dbsnp ~/projects/10x-somatic-call/data/ftp.broadinstitute.org/bundle/hg19/dbsnp_138.hg19.vcf\
+         -I:tumor tumour.phased.md.sorted.bam\
+         -N:normal normal.phased.md.sorted.bam\
+         --vcf tumour_normal.md.vcf\
+         -o tumour_normal.md.out\
+         --cosmic data/cosmic.hg19.vcf\
+         --dbsnp data/dbsnp_138.hg19.vcf\
          --tumor_sample_name HCC1954T\
          --normal_sample_name HCC1954N\
          --normal_panel pon.hg19.mutect1.siteonly.vcf
@@ -125,25 +132,29 @@ Load modules:
 Compute a trimmed modified BAM file
 ------------------------------------------------------------------------
 
-Let's get started! First we will trim the BAM file and then sort the alignments: ::
+Let's get started! First we will trim the BAM file and then sort the alignments:
 
-    ./10xtrim -b tumour.phased.marked_dups.sorted.bam -o tumour.trimmed.stats | samtools view -Sbh | samtools sort > tumour.phased.marked_dups.sorted.bam
-    samtools index tumour.phased.marked_dups.sorted.bam
+```
+    ./10xtrim -b tumour.phased.md.sorted.bam -o tumour.trimmed.stats | samtools view -Sbh | samtools sort > tumour.phased.md.trimmed.sorted.bam
+    samtools index tumour.phased.md.trimmed.sorted.bam
+```
 
 Then we need to fix any mate pairs where 10xtrim completely unmaps an alignment. This may cause inconsistent BAM records.
+
 
 Post-processing steps for downstream analyses:
 ------------------------------------------------------------------------
 
 We can use Picard's Fixmateinformation: ::
 
+```
     java -jar [path-to-picard-tools]/FixMateInformation.jar\
-        I=tumour.phased.marked_dups.sorted.bam\
-        O=tumour.phased.marked_dups.fixmates.bam
+        I=tumour.phased.md.trimmed.sorted.bam\
+        O=tumour.phased.md.trimmed.fixmates.bam
 
-    samtools sort tumour.phased.marked_dups.fixmates.bam > tumour.phased.marked_dups.fixmates.sorted.bam
-    samtools index tumour.phased.marked_dups.fixmates.sorted.bam
-
+    samtools sort tumour.phased.md.trimmed.fixmates.bam > tumour.phased.md.fixmates.sorted.bam
+    samtools index tumour.phased.md.trimmed.fixmates.sorted.bam
+```
 
 Call somatic mutations in tumour-only mode:
 ------------------------------------------------------------------------
@@ -153,19 +164,19 @@ We can now call our somatic mutations using MuTect1 in tumour-only mode: ::
     java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
          -T MuTect -L chr20\
          -R refdata-hg19-2.1.0/fasta/genome.fa\
-         -I:tumor HCC1954T_WGS_210_phased_possorted_bam.chr20.marked_dups.sorted.bam\
-         --vcf HCC1954.10x_tumour_only.chr20.marked_dups.vcf\
-         -o HCC1954.10x_tumour_only.chr20.marked_dups.out\
-         --cosmic ~/projects/10x-somatic-call/data/COSMIC-GRCh37/Cosmic.hg19.vcf\
-         --dbsnp ~/projects/10x-somatic-call/data/ftp.broadinstitute.org/bundle/hg19/dbsnp_138.hg19.vcf\
+         -I:tumor tumour.phased.md.trimmed.fixmates.sorted.bam\
+         --vcf tumour_only.md.trimmed.vcf\
+         -o tumour_only.md.trimmed.out
+         --cosmic data/cosmic.hg19.vcf\
+         --dbsnp data/dbsnp_138.hg19.vcf\
          --tumor_sample_name HCC1954T\
          --normal_sample_name HCC1954N\
-         --normal_panel pon.hg19.mutect1.siteonly.vcf
+         --normal_panel data/pon.hg19.mutect1.siteonly.vcf
 
 Visualize difference in IGV:
 ------------------------------------------------------------------------
 
 To see how 10xtrim removed this 10X-specific artifact we can visualize the false positive in IGV with the BAMs pre and post 10xtrim. In the interest of time, I've generated the IGV screenshot of what we should expect:
 
-
+<img src="chr20_7587045_posttrim.png" width="80%">
 
