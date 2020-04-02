@@ -37,7 +37,7 @@ You should find the following files in `data/`:
 In this tutorial, we aim to remove a 10X-specific false positive (FP) variant when calling in tumour-only mode. 
 Here, we define a 10X-specific artifact as a variant NOT found when calling somatc mutations in matched tumour-normal mode.
 
-The FP multinucleotide variant (MNV) we are removing looks like this:
+The FP multinucleotide variant (MNV) we are removing is at chr20:7587045 and it looks like this:
 
 <img src="chr20_7587045_pretrim.png" width="80%">
 
@@ -138,9 +138,31 @@ module load picard
 module load samtools
 
 # run 10xtrim
-./10xtrim -b tumour.phased.md.sorted.bam -o tumour.trimmed.stats | samtools view -Sbh | samtools sort > tumour.phased.md.trimmed.sorted.bam
+./10xtrim -b data/tumour.phased.md.sorted.bam -o tumour.trimmed.stats | samtools view -Sbh | samtools sort > tumour.phased.md.trimmed.sorted.bam
 samtools index tumour.phased.md.trimmed.sorted.bam
 ```
+
+We can look at the tsv file to see which reads were removed:
+
+```
+head tumour.trimmed.stats.tsv
+```
+
+We should see this:
+```
+read_name       read_length     total_bases_trimmed     old_cigar       new_cigar       overlap_score   overlap.seq.start      overlap.revcomp.start   hairpin_beginning       seq
+E00438:46:HMTV7CCXX:1:2111:19278:50498  151     0       151M    -       2       145     0       -       -
+E00438:46:HMTV7CCXX:5:1221:8389:30298   151     0       151M    -       -3      0       150     -       -
+E00438:46:HMTV7CCXX:3:2110:25733:19346  151     0       151M    -       -2      147     0       -       -
+E00438:46:HMTV7CCXX:6:2111:6989:13246   151     0       10S141M -       14      0       129     -       -
+E00438:46:HMTV7CCXX:2:1118:15706:53592  151     31      18S55M1I77M     31S42M1I77M     44      0       119     1     TTCTGCCTTTGCATTTGGATGCAAAGGCAGAAGTCAATTTATTCTTGGTTGCAGATAATATGATCCTTTTTTTAAAAAAAAAAAAACCTAAAGACACTACCAATAAACTATTGGAACTGATAAACAAATGCACTAAAGTTGAAGGATACAA
+E00438:46:HMTV7CCXX:4:1215:4005:44609   151     0       10S141M -       14      0       129     -       -
+E00438:46:HMTV7CCXX:7:2113:29203:15479  128     0       128M    -       4       0       126     -       -
+E00438:46:HMTV7CCXX:3:2206:26433:54946  151     0       151M    -       14      0       132     -       -
+E00438:46:HMTV7CCXX:2:2112:2199:16445   151     0       151M    -       9       0       107     -       -
+```
+
+
 
 ### Visualize difference in IGV:
 
