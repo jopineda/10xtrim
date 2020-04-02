@@ -47,7 +47,7 @@ Here, we define a 10X-specific artifact as a variant NOT found when calling soma
 
 The FP multinucleotide variant (MNV) we are removing looks like this:
 
-<img src="chr20_7587045_pretrim.png" width="30%">
+<img src="chr20_7587045_pretrim.png" width="80%">
 
 This MNV has many softclipped bases on the evidence reads, which present chimeric signatures. The subsections map to nearby locations in the genome.
 
