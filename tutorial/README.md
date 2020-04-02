@@ -3,7 +3,6 @@
 The original purpose of 10xtrim was to improve the *tumour-only* somatic mutation calling accuracy when using 10X Genomics' linked-reads. Here we provide a step-by-step tutorial to help you get started.
 
 # PART 1: trim inverted repeat reads
-===============================================================
 
 **Requirements**:
 
@@ -150,13 +149,14 @@ To see how 10xtrim removed this 10X-specific artifact we can visualize the false
 <img src="chr20_7587045_posttrim.png" width="80%">
 
 # PART 2: calling somatic mutations
-===============================================================
 
 **Additional requirements**:
 
 * [`picard`](https://github.com/broadinstitute/picard)
 * `python 2.7`
 * [`MuTect1`](https://github.com/broadinstitute/mutect)
+
+We should find MuTect and picard jar files in `tools/`.
 
 **External files**:
 
@@ -207,6 +207,7 @@ To filter variants, we highly recommend using a panel of normal, high confidence
 ordant filter, and a minimum allele frequency cut off of 0.06. This can be run using our custom script `filter.py`.
 
 ```
+module load python 
 source venv/bin/activate
 python filter.py tumour_only.md.trimmed.fixmates.vcf tumour.phased.md.trimmed.fixmates.sorted.bam shared-data/highconf.hg19.bed HCC1954T
 ```
