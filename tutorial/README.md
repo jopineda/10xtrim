@@ -5,11 +5,11 @@ The original purpose of 10xtrim was to improve the *tumour-only* somatic mutatio
 
 **Requirements**:
 
-* `10xtrim`_
-* `samtools <https://htslib.org>`_
-* `picard tools <https://github.com/broadinstitute/picard>`_
+* `10xtrim`
+* `samtools` [here!](https://htslib.org)
+* `picard` [here!](https://github.com/broadinstitute/picard)
 * `python 2.7`
-* `MuTect1 <https://github.com/broadinstitute/mutect>`
+* `MuTect1` [here!](https://github.com/broadinstitute/mutect)
 
 Download example dataset
 ------------------------------------
@@ -26,8 +26,8 @@ You can download the example dataset we will use here: ::
 * Instrument : Illumina X Ten
 * Region: "chr20:7586000-7588000"
 * Reference: hg19
-* Tumour from: `here <https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954T_WGS_210>`
-* Normal from: `here <https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954N_WGS_210>`
+* [Tumour phased BAM!](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954T_WGS_210)
+* [Normal phased BAM!](https://support.10xgenomics.com/genome-exome/datasets/2.1.0/HCC1954N_WGS_210)
 
 This is a subset of phased reads aligned to a 2kb region of hg19 reference genome. 
 
@@ -49,7 +49,15 @@ The FP multinucleotide variant (MNV) we are removing looks like this:
 
 <img src="chr20_7587045_pretrim.png" width="80%">
 
-This MNV has many softclipped bases on the evidence reads, which present chimeric signatures. The subsections map to nearby locations in the genome.
+This MNV has many softclipped bases on the evidence reads, which present chimeric signatures.
+
+For example for the evidence read with this sequence:
+
+```
+TCATAGGCCTGCTTGCCATTTATATGTCTTCTTTGGAGAAATATCTA*TT*TAGATATTTCTCCAAAGAAGACATATAAATGGCAAGCAGGCCTATGAAAAGGTGCTCAACGTTATTAATCATAGGAGAAAAGCAAATCCCCAAACTACAATG
+```
+
+The subsections map to nearby locations in the genome. As seen in this BLAT result:
 
 ```
    ACTIONS      QUERY   SCORE START   END QSIZE IDENTITY  CHROM           STRAND  START       END   SPAN
@@ -58,7 +66,7 @@ browser details YourSeq   109    39   151   151    98.3%  chr20           +     
 browser details YourSeq    58     1    58   151   100.0%  chr20           -     7587036   7587093     58
 ```
 
-And show this inverted repeat signature, that can form self-overlaps:
+And show this inverted repeat signature, that can form self-overlaps. As seen in this mfold result:
 
 ```
           10        20        30        40
