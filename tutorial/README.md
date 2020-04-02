@@ -2,20 +2,16 @@
 
 The original purpose of 10xtrim was to improve the *tumour-only* somatic mutation calling accuracy when using 10X Genomics' linked-reads. Here we provide a step-by-step tutorial to help you get started.
 
+# PART 1: trim inverted repeat reads
+===============================================================
+
 **Requirements**:
 
 * `10xtrim`
 * [`samtools`](https://htslib.org)
 
-### Example dataset
 
-You can download the example dataset we will use here: ::
-
-    wget http://s3.climb.ac.uk/nanopolish_tutorial/ecoli_2kb_region.tar.gz
-    tar -xvf ecoli_2kb_region.tar.gz
-    cd ecoli_2kb_region
-
-**Details**:
+**Example dataset**:
 
 * Sample: HCC1954 (Human cell line derived from a primary stage IIA, grade 3 invasive ductal carcinoma) 
 * Instrument : Illumina X Ten
@@ -26,7 +22,7 @@ You can download the example dataset we will use here: ::
 
 This is a subset of phased reads aligned to a 2kb region of hg19 reference genome. 
 
-You should find the following files:
+You should find the following files in `data/`:
 
 * ``tumour.phased.md.sorted.bam`` : tumour read alignments to reference
 * ``tumour.phased.md.sorted.bam.bai`` : tumour read alignments index
@@ -35,7 +31,9 @@ You should find the following files:
 * ``cosmic.hg19.vcf`` : known somatic mutations from COSMIC
 * ``dbsnp.hg19.vcf``  : known common variants from dbSNP
 -->
-### Objective
+
+## Motivation
+------------------------------------------------------------------------
 
 In this tutorial, we aim to remove a 10X-specific false positive (FP) variant when calling in tumour-only mode. 
 Here, we define a 10X-specific artifact as a variant NOT found when calling somatc mutations in matched tumour-normal mode.
@@ -125,37 +123,34 @@ java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
 To filter variants, we highly recommend using a panel of normal, high confidence filter (from GIAB), our haplotype discordant filter, and a minimum allele frequency cut off of 0.06. This can be run using our custom script `filter.py`.
 
 ```
-python filter.py tumour_normal.md.vcf data/tumour.phased.md.sorted.bam data/highconf.hg19.bed HCC1954T
+python filter.py tumour_normal.md.vcf data/tumour.phased.md.sorted.bam shared-data/highconf.hg19.bed HCC1954T
 ``` 
 
 The output is a filterd VCF file: `tumour_normal.md.filtered.vcf`.
 
-### Set up on OICR cluster
-
-Load module:
-
-```
-module load picard
-module load samtools
-```
-
 ### Compute a trimmed modified BAM file
+------------------------------------------------------------------------
 
 Let's get started! First we will trim the BAM file and then sort the alignments:
 
 ```
+# specific to OICR cluster
+module load picard
+module load samtools
+
+# run 10xtrim
 ./10xtrim -b tumour.phased.md.sorted.bam -o tumour.trimmed.stats | samtools view -Sbh | samtools sort > tumour.phased.md.trimmed.sorted.bam
 samtools index tumour.phased.md.trimmed.sorted.bam
 ```
 
 ### Visualize difference in IGV:
-------------------------------------------------------------------------
 
 To see how 10xtrim removed this 10X-specific artifact we can visualize the false positive in IGV with the BAMs pre and post 10xtrim. In the interest of time, I've generated the IGV screenshot of what we should expect:
 
 <img src="chr20_7587045_posttrim.png" width="80%">
 
-# Calling somatic mutations
+# PART 2: calling somatic mutations
+===============================================================
 
 **Additional requirements**:
 
@@ -163,9 +158,14 @@ To see how 10xtrim removed this 10X-specific artifact we can visualize the false
 * `python 2.7`
 * [`MuTect1`](https://github.com/broadinstitute/mutect)
 
-We will be using external data files for filtering and denoting the variants.
-These will be found in `shared-data/`.
+**External files**:
 
+We will be using external data files for filtering and denoting the variants.
+
+You should find the following files in `shared-data/`:
+* ``highconf.hg19.chr20.bed`` : high confidence intervals from GIAB
+* ``cosmic.hg19.chr20.vcf`` : known somatic mutations from COSMIC
+* ``dbsnp.hg19.chr20.vcf``  : known common variants from dbSNP
 
 ## Post-processing steps for downstream analyses:
 
@@ -194,8 +194,8 @@ java -jar tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      -I:tumor tumour.phased.md.trimmed.fixmates.sorted.bam\
      --vcf tumour_only.md.trimmed.fixmates.vcf\
      -o tumour_only.md.trimmed.fixmates.out
-     --cosmic shared-data/cosmic.hg19.vcf\
-     --dbsnp shared-data/dbsnp_138.hg19.vcf\
+     --cosmic shared-data/cosmic.hg19.chr20.vcf\
+     --dbsnp shared-data/dbsnp_138.hg19.chr20.vcf\
      --tumor_sample_name HCC1954T\
      --normal_sample_name HCC1954N\
      --normal_panel shared-data/pon.hg19.mutect1.siteonly.vcf
@@ -208,5 +208,5 @@ ordant filter, and a minimum allele frequency cut off of 0.06. This can be run u
 
 ```
 source venv/bin/activate
-python filter.py tumour_only.md.trimmed.fixmates.vcf data/tumour.phased.md.trimmed.fixmates.sorted.bam shared-data/highconf.hg19.bed HCC1954T
+python filter.py tumour_only.md.trimmed.fixmates.vcf tumour.phased.md.trimmed.fixmates.sorted.bam shared-data/highconf.hg19.bed HCC1954T
 ```
