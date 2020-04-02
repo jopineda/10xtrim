@@ -200,7 +200,7 @@ java -jar tools/picard/FixMateInformation.jar\
     I=tumour.phased.md.trimmed.sorted.bam\
     O=tumour.phased.md.trimmed.fixmates.bam
 
-samtools sort tumour.phased.md.trimmed.fixmates.bam > tumour.phased.md.fixmates.sorted.bam
+samtools sort tumour.phased.md.trimmed.fixmates.bam > tumour.phased.md.trimmed.fixmates.sorted.bam
 samtools index tumour.phased.md.trimmed.fixmates.sorted.bam
 ```
 
@@ -212,7 +212,7 @@ We can now call our somatic mutations using MuTect1 in tumour-only mode:
 ```
 java -jar tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      -T MuTect -L chr20\
-     -R refdata-hg19-2.1.0/fasta/genome.fa\
+     -R shared-data/genome.fa\
      -I:tumor tumour.phased.md.trimmed.fixmates.sorted.bam\
      --vcf tumour_only.md.trimmed.fixmates.vcf\
      -o tumour_only.md.trimmed.fixmates.out
