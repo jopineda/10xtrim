@@ -6,11 +6,8 @@ The original purpose of 10xtrim was to improve the *tumour-only* somatic mutatio
 
 * `10xtrim`
 * [`samtools`](https://htslib.org)
-<!--* [`picard`](https://github.com/broadinstitute/picard)-->
-<!--* `python 2.7`-->
-<!--[`MuTect1`](https://github.com/broadinstitute/mutect)-->
 
-## Download example dataset
+### Example dataset
 
 You can download the example dataset we will use here: ::
 
@@ -38,7 +35,7 @@ You should find the following files:
 * ``cosmic.hg19.vcf`` : known somatic mutations from COSMIC
 * ``dbsnp.hg19.vcf``  : known common variants from dbSNP
 -->
-## Objective
+### Objective
 
 In this tutorial, we aim to remove a 10X-specific false positive (FP) variant when calling in tumour-only mode. 
 Here, we define a 10X-specific artifact as a variant NOT found when calling somatc mutations in matched tumour-normal mode.
@@ -81,7 +78,7 @@ We use 10xtrim to identify these reads, and further softclip these reads to remo
 
 ## Pre-processing steps (already done)
 
-### Marking duplicates, again
+**Marking duplicates, again**
 
 We recommend an additional round of marking duplicates. LongRanger provides the phased BAM file and carries out a barcode-aware markng of duplicates. Reads with missing backcodes may not be missed.
 
@@ -100,7 +97,7 @@ java -jar [path-to-picard-tools]/MarkDuplicates.jar\
 samtools index tumour.phased.md.sorted.bam
 ```
 
-### Identifying false positives
+**Identifying false positives**
 
 To identify FP, we ran MuTect1 in matched tumour-normal mode. 
 
@@ -123,6 +120,8 @@ java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      --normal_panel pon.hg19.mutect1.siteonly.vcf
 ```
 
+**Filtering variants**
+
 To filter variants, we highly recommend using a panel of normal, high confidence filter (from GIAB), our haplotype discordant filter, and a minimum allele frequency cut off of 0.06. This can be run using our custom script `filter.py`.
 
 ```
@@ -131,7 +130,7 @@ python filter.py tumour_normal.md.vcf data/tumour.phased.md.sorted.bam data/high
 
 The output is a filterd VCF file: `tumour_normal.md.filtered.vcf`.
 
-## Set up on OICR cluster
+### Set up on OICR cluster
 
 Load module:
 
@@ -140,7 +139,7 @@ module load picard
 module load samtools
 ```
 
-## Compute a trimmed modified BAM file
+### Compute a trimmed modified BAM file
 
 Let's get started! First we will trim the BAM file and then sort the alignments:
 
@@ -149,15 +148,33 @@ Let's get started! First we will trim the BAM file and then sort the alignments:
 samtools index tumour.phased.md.trimmed.sorted.bam
 ```
 
-Then we need to fix any mate pairs where 10xtrim completely unmaps an alignment. This may cause inconsistent BAM records.
+### Visualize difference in IGV:
+------------------------------------------------------------------------
+
+To see how 10xtrim removed this 10X-specific artifact we can visualize the false positive in IGV with the BAMs pre and post 10xtrim. In the interest of time, I've generated the IGV screenshot of what we should expect:
+
+<img src="chr20_7587045_posttrim.png" width="80%">
+
+# Calling somatic mutations
+
+**Additional requirements**:
+
+* [`picard`](https://github.com/broadinstitute/picard)
+* `python 2.7`
+* [`MuTect1`](https://github.com/broadinstitute/mutect)
+
+We will be using external data files for filtering and denoting the variants.
+These will be found in `shared-data/`.
 
 
 ## Post-processing steps for downstream analyses:
 
+To carry out downstream analyses, we need to fix any mate pairs where 10xtrim completely unmaps an alignment. This may cause inconsistent BAM records.
+
 We can use Picard's Fixmateinformation:
 
 ```
-java -jar [path-to-picard-tools]/FixMateInformation.jar\
+java -jar tools/picard/FixMateInformation.jar\
     I=tumour.phased.md.trimmed.sorted.bam\
     O=tumour.phased.md.trimmed.fixmates.bam
 
@@ -165,30 +182,31 @@ samtools sort tumour.phased.md.trimmed.fixmates.bam > tumour.phased.md.fixmates.
 samtools index tumour.phased.md.trimmed.fixmates.sorted.bam
 ```
 
-<!---Call somatic mutations in tumour-only mode:
+## Call somatic mutations in tumour-only mode:
 ------------------------------------------------------------------------
 
 We can now call our somatic mutations using MuTect1 in tumour-only mode:
 
 ```
-java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
+java -jar tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      -T MuTect -L chr20\
      -R refdata-hg19-2.1.0/fasta/genome.fa\
      -I:tumor tumour.phased.md.trimmed.fixmates.sorted.bam\
-     --vcf tumour_only.md.trimmed.vcf\
-     -o tumour_only.md.trimmed.out
-     --cosmic data/cosmic.hg19.vcf\
-     --dbsnp data/dbsnp_138.hg19.vcf\
+     --vcf tumour_only.md.trimmed.fixmates.vcf\
+     -o tumour_only.md.trimmed.fixmates.out
+     --cosmic shared-data/cosmic.hg19.vcf\
+     --dbsnp shared-data/dbsnp_138.hg19.vcf\
      --tumor_sample_name HCC1954T\
      --normal_sample_name HCC1954N\
-     --normal_panel data/pon.hg19.mutect1.siteonly.vcf
+     --normal_panel shared-data/pon.hg19.mutect1.siteonly.vcf
 ```
--->
 
-Visualize difference in IGV:
-------------------------------------------------------------------------
+**Filter variants**
 
-To see how 10xtrim removed this 10X-specific artifact we can visualize the false positive in IGV with the BAMs pre and post 10xtrim. In the interest of time, I've generated the IGV screenshot of what we should expect:
+To filter variants, we highly recommend using a panel of normal, high confidence filter (from GIAB), our haplotype disc
+ordant filter, and a minimum allele frequency cut off of 0.06. This can be run using our custom script `filter.py`.
 
-<img src="chr20_7587045_posttrim.png" width="80%">
-
+```
+source venv/bin/activate
+python filter.py tumour_only.md.trimmed.fixmates.vcf data/tumour.phased.md.trimmed.fixmates.sorted.bam shared-data/highconf.hg19.bed HCC1954T
+```
