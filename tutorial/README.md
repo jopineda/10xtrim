@@ -6,9 +6,9 @@ The original purpose of 10xtrim was to improve the *tumour-only* somatic mutatio
 
 * `10xtrim`
 * [`samtools`](https://htslib.org)
-* [`picard`](https://github.com/broadinstitute/picard)
-* `python 2.7`
-* [`MuTect1`](https://github.com/broadinstitute/mutect)
+<!--* [`picard`](https://github.com/broadinstitute/picard)-->
+<!--* `python 2.7`-->
+<!--[`MuTect1`](https://github.com/broadinstitute/mutect)-->
 
 ## Download example dataset
 
@@ -32,11 +32,12 @@ This is a subset of phased reads aligned to a 2kb region of hg19 reference genom
 You should find the following files:
 
 * ``tumour.phased.md.sorted.bam`` : tumour read alignments to reference
-* ``normal.phased.md.sorted.bam`` : tumour read alignments to reference
+* ``tumour.phased.md.sorted.bam.bai`` : tumour read alignments index
+<!--* ``normal.phased.md.sorted.bam`` : tumour read alignments to reference
 * ``highconf.hg19.bed`` : high confidence intervals from GIAB
 * ``cosmic.hg19.vcf`` : known somatic mutations from COSMIC
 * ``dbsnp.hg19.vcf``  : known common variants from dbSNP
-
+-->
 ## Objective
 
 In this tutorial, we aim to remove a 10X-specific false positive (FP) variant when calling in tumour-only mode. 
@@ -132,13 +133,11 @@ The output is a filterd VCF file: `tumour_normal.md.filtered.vcf`.
 
 ## Set up on OICR cluster
 
-Load modules:
+Load module:
 
 ```
 module load picard
 module load samtools
-module load java/1.7.0_21
-module load java/jre1.7.0_11
 ```
 
 ## Compute a trimmed modified BAM file
