@@ -122,6 +122,14 @@ java -jar /u/jpineda/tools/mutect-src/mutect/target/mutect-1.1.7.jar\
      --normal_panel pon.hg19.mutect1.siteonly.vcf
 ```
 
+To filter variants, we highly recommend using a panel of normal, high confidence filter (from GIAB), our haplotype discordant filter, and a minimum allele frequency cut off of 0.06. This can be run using our custom script `filter.py`.
+
+```
+python filter.py tumour_normal.md.vcf data/tumour.phased.md.sorted.bam data/highconf.hg19.bed HCC1954T
+``` 
+
+The output is a filterd VCF file: `tumour_normal.md.filtered.vcf`.
+
 ## Set up on OICR cluster
 
 Load modules:
